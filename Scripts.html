@@ -5,6 +5,7 @@
   const state = {
     channel: null,
     latestVideos: [],
+    topVideos: [],
     ideas: [],
     activeIdeaFilter: 'pending' // 'pending' | 'completed'
   };
@@ -123,26 +124,59 @@
               commentCount: 112
             }
           ],
-          ideas: [
+          topVideos: [
             {
-              id: 'idea_1',
-              text: 'Bikin tutorial Telegram Mini App menggunakan Google Apps Script',
-              status: 'pending',
-              createdAt: new Date().toISOString()
+              id: 'top_vid_1',
+              title: 'Cara Otomatisasi Channel YouTube dengan Telegram Bot & Google Apps Script 🔥',
+              publishedAt: new Date(Date.now() - 86400000 * 30).toISOString(),
+              thumbnailUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=500&auto=format&fit=crop&q=60',
+              videoUrl: 'https://www.youtube.com',
+              viewCount: 154200,
+              likeCount: 12400,
+              commentCount: 980
             },
             {
-              id: 'idea_2',
-              text: 'Shorts 60s: 3 Tips Optimasi YouTube Data API v3 di GAS',
-              status: 'pending',
-              createdAt: new Date().toISOString()
+              id: 'top_vid_2',
+              title: 'Shorts: 3 Trik Rahasia Algoritma YouTube 2026 yang Wajib Kamu Tahu!',
+              publishedAt: new Date(Date.now() - 86400000 * 15).toISOString(),
+              thumbnailUrl: 'https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=500&auto=format&fit=crop&q=60',
+              videoUrl: 'https://www.youtube.com',
+              viewCount: 89500,
+              likeCount: 7800,
+              commentCount: 450
             },
             {
-              id: 'idea_3',
-              text: 'Review fitur Glassmorphism Telegram Dark Mode UI',
-              status: 'completed',
-              createdAt: new Date().toISOString()
+              id: 'top_vid_3',
+              title: 'Tips Koding Efisien Menggunakan Antigravity AI Agent & GAS Web App',
+              publishedAt: new Date(Date.now() - 86400000 * 5).toISOString(),
+              thumbnailUrl: 'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=500&auto=format&fit=crop&q=60',
+              videoUrl: 'https://www.youtube.com',
+              viewCount: 45200,
+              likeCount: 3900,
+              commentCount: 310
+            },
+            {
+              id: 'top_vid_4',
+              title: 'Membuat Telegram Mini App dengan Google Apps Script dari Nol! 🚀',
+              publishedAt: new Date(Date.now() - 86400000 * 2).toISOString(),
+              thumbnailUrl: 'https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=500&auto=format&fit=crop&q=60',
+              videoUrl: 'https://www.youtube.com',
+              viewCount: 28400,
+              likeCount: 2150,
+              commentCount: 185
+            },
+            {
+              id: 'top_vid_5',
+              title: 'Panduan Lengkap Integration YouTube Data API v3 di Google Spreadsheet',
+              publishedAt: new Date(Date.now() - 86400000 * 45).toISOString(),
+              thumbnailUrl: 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=500&auto=format&fit=crop&q=60',
+              videoUrl: 'https://www.youtube.com',
+              viewCount: 19800,
+              likeCount: 1450,
+              commentCount: 120
             }
-          ]
+          ],
+          ideas: []
         });
       }, 600);
     }
@@ -156,6 +190,7 @@
 
     state.channel = res.channel;
     state.latestVideos = res.latestVideos || [];
+    state.topVideos = res.topVideos || [];
     state.ideas = res.ideas || [];
 
     renderHeader();
@@ -199,28 +234,42 @@
     const dashListEl = document.getElementById('dashVideoList');
     const fullListEl = document.getElementById('fullVideoList');
 
-    if (!state.latestVideos || state.latestVideos.length === 0) {
-      const emptyHtml = `<div class="empty-state"><p>Belum ada video yang diunggah.</p></div>`;
-      if (dashListEl) dashListEl.innerHTML = emptyHtml;
-      if (fullListEl) fullListEl.innerHTML = emptyHtml;
-      return;
+    // Tab 1: Latest Uploads
+    if (dashListEl) {
+      if (!state.latestVideos || state.latestVideos.length === 0) {
+        dashListEl.innerHTML = `<div class="empty-state"><p>Belum ada video yang diunggah.</p></div>`;
+      } else {
+        dashListEl.innerHTML = state.latestVideos.map(video => buildVideoCardHtml(video)).join('');
+      }
     }
 
-    const videosHtml = state.latestVideos.map(video => buildVideoCardHtml(video)).join('');
-    
-    if (dashListEl) dashListEl.innerHTML = videosHtml;
-    if (fullListEl) fullListEl.innerHTML = videosHtml;
+    // Tab 2: Top 5 Most Viewed Videos
+    if (fullListEl) {
+      let topVids = state.topVideos || [];
+      if (topVids.length === 0 && state.latestVideos && state.latestVideos.length > 0) {
+        topVids = [...state.latestVideos].sort((a, b) => (b.viewCount || 0) - (a.viewCount || 0));
+      }
+      topVids = topVids.slice(0, 5);
+
+      if (topVids.length === 0) {
+        fullListEl.innerHTML = `<div class="empty-state"><p>Belum ada data video ditemukan.</p></div>`;
+      } else {
+        fullListEl.innerHTML = topVids.map((video, idx) => buildVideoCardHtml(video, idx + 1)).join('');
+      }
+    }
   }
 
-  function buildVideoCardHtml(video) {
+  function buildVideoCardHtml(video, rank) {
     const formattedViews = formatCompactNumber(video.viewCount || 0);
     const formattedLikes = formatCompactNumber(video.likeCount || 0);
     const formattedComments = formatCompactNumber(video.commentCount || 0);
     const relativeTime = getRelativeTimeString(video.publishedAt);
+    const rankHtml = rank ? `<div class="rank-badge">#${rank}</div>` : '';
 
     return `
       <div class="video-card" onclick="openVideoLink('${video.videoUrl}')">
         <div class="video-thumb-wrapper">
+          ${rankHtml}
           <img src="${video.thumbnailUrl}" alt="Thumbnail" class="video-thumb" loading="lazy">
           <div class="play-badge">
             <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>

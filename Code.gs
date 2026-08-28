@@ -4,7 +4,7 @@
  */
 
 // Configuration Property Keys
-const PROP_CHANNEL_ID = 'CHANNEL_ID';
+const PROP_CHANNEL_ID = 'YOUTUBE_CHANNEL_ID';
 const PROP_IDEAS_KEY = 'YOUTUBE_IDEAS_DATA';
 
 /**
@@ -58,17 +58,20 @@ function getChannelDashboardData() {
     const channelId = getStoredChannelId();
     let channelStats = null;
     let latestVideos = [];
+    let topVideos = [];
 
     // Attempt fetching live YouTube Data if YouTube API service is available
     if (typeof YouTube !== 'undefined' && YouTube.Channels) {
       channelStats = fetchChannelStats(channelId);
       if (channelStats && channelStats.id) {
         latestVideos = fetchLatestVideos(channelStats.id, 5);
+        topVideos = fetchTopVideos(channelStats.id, 5);
       }
     } else {
       Logger.log("YouTube Advanced Service is not enabled. Returning fallback/mock channel metrics.");
       channelStats = getFallbackChannelStats();
       latestVideos = getFallbackLatestVideos();
+      topVideos = getFallbackTopVideos();
     }
 
     const ideas = getIdeasStorage();
@@ -77,6 +80,7 @@ function getChannelDashboardData() {
       success: true,
       channel: channelStats || getFallbackChannelStats(),
       latestVideos: latestVideos.length > 0 ? latestVideos : getFallbackLatestVideos(),
+      topVideos: topVideos.length > 0 ? topVideos : getFallbackTopVideos(),
       ideas: ideas
     };
   } catch (err) {
@@ -86,6 +90,7 @@ function getChannelDashboardData() {
       error: err.toString(),
       channel: getFallbackChannelStats(),
       latestVideos: getFallbackLatestVideos(),
+      topVideos: getFallbackTopVideos(),
       ideas: getIdeasStorage()
     };
   }
@@ -311,6 +316,29 @@ function fetchLatestVideos(channelId, limit) {
   return [];
 }
 
+function fetchTopVideos(channelId, limit) {
+  const searchResponse = YouTube.Search.list('snippet', {
+    channelId: channelId,
+    maxResults: limit || 5,
+    order: 'viewCount',
+    type: 'video'
+  });
+
+  if (!searchResponse || !searchResponse.items || searchResponse.items.length === 0) {
+    return [];
+  }
+
+  const videoIds = searchResponse.items.map(item => item.id.videoId).join(',');
+  const videosResponse = YouTube.Videos.list('snippet,statistics', { id: videoIds });
+
+  if (videosResponse && videosResponse.items) {
+    const formatted = videosResponse.items.map(formatVideoItem);
+    formatted.sort((a, b) => b.viewCount - a.viewCount);
+    return formatted;
+  }
+  return [];
+}
+
 function formatVideoItem(item) {
   const snippet = item.snippet;
   const stats = item.statistics || {};
@@ -489,6 +517,61 @@ function getFallbackLatestVideos() {
       viewCount: 15300,
       likeCount: 1420,
       commentCount: 112
+    }
+  ];
+}
+
+function getFallbackTopVideos() {
+  return [
+    {
+      id: 'top_vid_1',
+      title: 'Cara Otomatisasi Channel YouTube dengan Telegram Bot & Google Apps Script 🔥',
+      publishedAt: new Date(Date.now() - 86400000 * 30).toISOString(),
+      thumbnailUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=500&auto=format&fit=crop&q=60',
+      videoUrl: 'https://www.youtube.com',
+      viewCount: 154200,
+      likeCount: 12400,
+      commentCount: 980
+    },
+    {
+      id: 'top_vid_2',
+      title: 'Shorts: 3 Trik Rahasia Algoritma YouTube 2026 yang Wajib Kamu Tahu!',
+      publishedAt: new Date(Date.now() - 86400000 * 15).toISOString(),
+      thumbnailUrl: 'https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=500&auto=format&fit=crop&q=60',
+      videoUrl: 'https://www.youtube.com',
+      viewCount: 89500,
+      likeCount: 7800,
+      commentCount: 450
+    },
+    {
+      id: 'top_vid_3',
+      title: 'Tips Koding Efisien Menggunakan Antigravity AI Agent & GAS Web App',
+      publishedAt: new Date(Date.now() - 86400000 * 5).toISOString(),
+      thumbnailUrl: 'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=500&auto=format&fit=crop&q=60',
+      videoUrl: 'https://www.youtube.com',
+      viewCount: 45200,
+      likeCount: 3900,
+      commentCount: 310
+    },
+    {
+      id: 'top_vid_4',
+      title: 'Membuat Telegram Mini App dengan Google Apps Script dari Nol! 🚀',
+      publishedAt: new Date(Date.now() - 86400000 * 2).toISOString(),
+      thumbnailUrl: 'https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=500&auto=format&fit=crop&q=60',
+      videoUrl: 'https://www.youtube.com',
+      viewCount: 28400,
+      likeCount: 2150,
+      commentCount: 185
+    },
+    {
+      id: 'top_vid_5',
+      title: 'Panduan Lengkap Integration YouTube Data API v3 di Google Spreadsheet',
+      publishedAt: new Date(Date.now() - 86400000 * 45).toISOString(),
+      thumbnailUrl: 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=500&auto=format&fit=crop&q=60',
+      videoUrl: 'https://www.youtube.com',
+      viewCount: 19800,
+      likeCount: 1450,
+      commentCount: 120
     }
   ];
 }
