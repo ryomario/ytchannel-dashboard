@@ -99,19 +99,39 @@ function addNewIdeaFromWebApp(text) {
     if (!text || !text.trim()) {
       throw new Error("Idea text cannot be empty.");
     }
-    const ideas = getIdeasStorage();
-    const newIdea = {
-      id: 'idea_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
-      text: text.trim(),
-      status: 'pending', // 'pending' | 'completed'
-      createdAt: new Date().toISOString()
-    };
-    ideas.unshift(newIdea);
-    saveIdeasStorage(ideas);
+    const cleanText = text.trim();
+    const spreadsheetId = getSpreadsheetId();
+
+    if (spreadsheetId) {
+      const sheetName = getIdeasSheetName();
+      const ss = SpreadsheetApp.openById(spreadsheetId);
+      let sheet = ss.getSheetByName(sheetName);
+      if (!sheet) {
+        sheet = ss.insertSheet(sheetName);
+        sheet.appendRow(["ID", "Text Ide", "Status", "Tanggal Dibuat"]);
+      }
+
+      const lastRow = sheet.getLastRow();
+      const newId = lastRow; // Auto increment ID berdasarkan baris (sama seperti ContentPlanner.gs)
+      const createdAt = Utilities.formatDate(new Date(), "Asia/Jakarta", "dd/MM/yyyy HH:mm");
+
+      sheet.appendRow([newId, cleanText, "PLANNED", createdAt]);
+
+      // Kirim notifikasi Telegram jika fungsi notifIdea tersedia dari ContentPlanner.gs
+      if (typeof notifIdea === 'function') {
+        try {
+          notifIdea(newId, cleanText, "PLANNED", createdAt);
+        } catch (e) {
+          Logger.log("notifIdea warning: " + e.toString());
+        }
+      }
+    } else {
+      addNewIdeaToProps(cleanText);
+    }
 
     return {
       success: true,
-      ideas: ideas
+      ideas: getIdeasStorage()
     };
   } catch (err) {
     Logger.log("Error in addNewIdeaFromWebApp: " + err.toString());
@@ -128,25 +148,49 @@ function addNewIdeaFromWebApp(text) {
  */
 function markIdeaDoneFromWebApp(ideaId) {
   try {
-    let ideas = getIdeasStorage();
-    let updated = false;
+    const spreadsheetId = getSpreadsheetId();
 
-    ideas = ideas.map(idea => {
-      if (idea.id === ideaId || String(idea.id) === String(ideaId)) {
-        idea.status = idea.status === 'completed' ? 'pending' : 'completed';
-        idea.updatedAt = new Date().toISOString();
-        updated = true;
+    if (spreadsheetId) {
+      const sheetName = getIdeasSheetName();
+      const ss = SpreadsheetApp.openById(spreadsheetId);
+      const sheet = ss.getSheetByName(sheetName);
+
+      if (sheet && sheet.getLastRow() > 1) {
+        const data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getValues();
+        let foundRow = -1;
+        let ideaText = "";
+        let currentStatus = "";
+
+        for (let i = 0; i < data.length; i++) {
+          if (data[i][0] == ideaId || String(data[i][0]) === String(ideaId)) {
+            foundRow = i + 2; // Offset header
+            ideaText = data[i][1];
+            currentStatus = data[i][2];
+            break;
+          }
+        }
+
+        if (foundRow !== -1) {
+          const newStatus = (currentStatus === "DONE") ? "PLANNED" : "DONE";
+          sheet.getRange(foundRow, 3).setValue(newStatus);
+
+          // Kirim notifikasi Telegram jika notifIdea tersedia
+          if (typeof notifIdea === 'function') {
+            try {
+              notifIdea(ideaId, ideaText, newStatus);
+            } catch (e) {
+              Logger.log("notifIdea warning: " + e.toString());
+            }
+          }
+        }
       }
-      return idea;
-    });
-
-    if (updated) {
-      saveIdeasStorage(ideas);
+    } else {
+      markIdeaDoneInProps(ideaId);
     }
 
     return {
       success: true,
-      ideas: ideas
+      ideas: getIdeasStorage()
     };
   } catch (err) {
     Logger.log("Error in markIdeaDoneFromWebApp: " + err.toString());
@@ -288,10 +332,58 @@ function formatVideoItem(item) {
 }
 
 // ==========================================
-// PERSISTENT IDEAS STORAGE (PropertiesService)
+// PERSISTENT IDEAS STORAGE (Google Sheets & Properties Fallback)
 // ==========================================
 
+function getSpreadsheetId() {
+  if (typeof CONFIG !== 'undefined' && CONFIG.SPREADSHEET_ID) {
+    return CONFIG.SPREADSHEET_ID;
+  }
+  return PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID') || '';
+}
+
+function getIdeasSheetName() {
+  if (typeof CONFIG !== 'undefined' && CONFIG.IDEAS_SHEET_NAME) {
+    return CONFIG.IDEAS_SHEET_NAME;
+  }
+  return PropertiesService.getScriptProperties().getProperty('IDEAS_SHEET_NAME') || 'Ideas';
+}
+
 function getIdeasStorage() {
+  try {
+    const spreadsheetId = getSpreadsheetId();
+    if (spreadsheetId) {
+      const sheetName = getIdeasSheetName();
+      const ss = SpreadsheetApp.openById(spreadsheetId);
+      const sheet = ss.getSheetByName(sheetName);
+
+      if (sheet) {
+        const lastRow = sheet.getLastRow();
+        if (lastRow > 1) {
+          const data = sheet.getRange(2, 1, lastRow - 1, 4).getValues();
+          return data.map(row => {
+            const rawStatus = (row[2] || '').toString().toUpperCase();
+            return {
+              id: row[0],
+              text: row[1],
+              status: rawStatus === 'DONE' ? 'completed' : 'pending',
+              rawStatus: rawStatus || 'PLANNED',
+              createdAt: row[3] ? row[3].toString() : ''
+            };
+          });
+        }
+        return [];
+      }
+    }
+  } catch (err) {
+    Logger.log("Error reading sheet ideas: " + err.toString());
+  }
+
+  // Fallback to PropertiesService if spreadsheet is not configured
+  return getIdeasStorageFromProps();
+}
+
+function getIdeasStorageFromProps() {
   try {
     const props = PropertiesService.getScriptProperties();
     const raw = props.getProperty(PROP_IDEAS_KEY);
@@ -299,40 +391,54 @@ function getIdeasStorage() {
       return JSON.parse(raw);
     }
   } catch (err) {
-    Logger.log("Error reading ideas storage: " + err.toString());
+    Logger.log("Error reading ideas storage properties: " + err.toString());
   }
 
-  // Initial sample seed ideas if empty
   const defaultIdeas = [
     {
-      id: 'idea_seed_1',
-      text: 'Bikin tutorial Telegram Mini App menggunakan Google Apps Script & Vanilla JS',
+      id: '1',
+      text: 'Bikin tutorial Telegram Mini App menggunakan Google Apps Script',
       status: 'pending',
-      createdAt: new Date().toISOString()
+      createdAt: Utilities.formatDate(new Date(), "Asia/Jakarta", "dd/MM/yyyy HH:mm")
     },
     {
-      id: 'idea_seed_2',
-      text: 'Shorts 60s: 3 Tips Optimasi YouTube Data API v3 di Google Apps Script',
+      id: '2',
+      text: 'Shorts 60s: 3 Tips Optimasi YouTube Data API v3 di GAS',
       status: 'pending',
-      createdAt: new Date().toISOString()
-    },
-    {
-      id: 'idea_seed_3',
-      text: 'Review fitur Glassmorphism Telegram Dark Mode UI',
-      status: 'completed',
-      createdAt: new Date().toISOString()
+      createdAt: Utilities.formatDate(new Date(), "Asia/Jakarta", "dd/MM/yyyy HH:mm")
     }
   ];
-  saveIdeasStorage(defaultIdeas);
   return defaultIdeas;
 }
 
-function saveIdeasStorage(ideasArray) {
+function addNewIdeaToProps(text) {
+  const ideas = getIdeasStorageFromProps();
+  const newIdea = {
+    id: String(ideas.length + 1),
+    text: text,
+    status: 'pending',
+    createdAt: Utilities.formatDate(new Date(), "Asia/Jakarta", "dd/MM/yyyy HH:mm")
+  };
+  ideas.unshift(newIdea);
   try {
-    const props = PropertiesService.getScriptProperties();
-    props.setProperty(PROP_IDEAS_KEY, JSON.stringify(ideasArray));
-  } catch (err) {
-    Logger.log("Error saving ideas storage: " + err.toString());
+    PropertiesService.getScriptProperties().setProperty(PROP_IDEAS_KEY, JSON.stringify(ideas));
+  } catch (e) {
+    Logger.log("Error saving ideas to props: " + e.toString());
+  }
+}
+
+function markIdeaDoneInProps(ideaId) {
+  let ideas = getIdeasStorageFromProps();
+  ideas = ideas.map(idea => {
+    if (idea.id === ideaId || String(idea.id) === String(ideaId)) {
+      idea.status = idea.status === 'completed' ? 'pending' : 'completed';
+    }
+    return idea;
+  });
+  try {
+    PropertiesService.getScriptProperties().setProperty(PROP_IDEAS_KEY, JSON.stringify(ideas));
+  } catch (e) {
+    Logger.log("Error saving updated ideas to props: " + e.toString());
   }
 }
 
