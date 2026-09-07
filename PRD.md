@@ -55,7 +55,15 @@ Aplikasi di-deploy langsung dari project Google Apps Script yang sama:
 
 * **UI Elements:** 3-column micro-card layout dengan border semi-transparan dan ikon minimalis.
 
-#### 4.2 Feature 2: Latest Videos Performance Tracker
+#### 4.2 Feature 1.1: Subscribers & Views Growth Trend Chart
+* **Description:** Grafik tren pertumbuhan channel memanjang yang menampilkan kurva Subscribers dan Views harian.
+* **Data Source:** Terhubung langsung ke spreadsheet history harian dari cron `AnalyticsDB.gs` (`recordDailyStats`), dengan fallback otomatis saat offline/preview.
+* **Visual Representation:**
+  * **Sumbu X:** Hari pencatatan (7 hari terakhir: `Min`, `Sen`, `Sel`, `Rab`, `Kam`, `Jum`, `Sab`).
+  * **Dual Y-Axis:** Sumbu kiri untuk Subscribers (aksen merah `#ff4444`) dan sumbu kanan untuk Views (aksen biru `#2aabee`) agar fluktuasi kedua metrik tampak proporsional tanpa flattening.
+  * **Interactivity:** Tooltip saat touch/hover, indikator selisih pertumbuhan total periode (`+X Subs`, `+Y Views`).
+
+#### 4.3 Feature 2: Latest Videos Performance Tracker
 
 * **Description:** Daftar 5 video / Shorts terbaru dengan indikator performa.
 * **Data Fields:** Thumbnail video, Judul video, Tanggal publish, View count, Like count, Comment count.
