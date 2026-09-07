@@ -7,9 +7,11 @@
     latestVideos: [],
     topVideos: [],
     ideas: [],
+    growthData: null,
     activeIdeaFilter: 'pending' // 'pending' | 'completed'
   };
 
+  let growthChartInstance = null;
   const tg = window.Telegram ? window.Telegram.WebApp : null;
 
   document.addEventListener('DOMContentLoaded', () => {
@@ -176,7 +178,16 @@
               commentCount: 120
             }
           ],
-          ideas: []
+          ideas: [],
+          growthData: {
+            days: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+            subscribers: [12365, 12380, 12402, 12420, 12450, 12475, 12500],
+            views: [468600, 470400, 472800, 474900, 478400, 481300, 485000],
+            subsDiffs: [15, 15, 22, 18, 30, 25, 25],
+            viewsDiffs: [1800, 1800, 2400, 2100, 3500, 2900, 3700],
+            subsGrowth: 135,
+            viewsGrowth: 16400
+          }
         });
       }, 600);
     }
@@ -192,9 +203,14 @@
     state.latestVideos = res.latestVideos || [];
     state.topVideos = res.topVideos || [];
     state.ideas = res.ideas || [];
+    state.growthData = res.growthData || generateClientFallbackGrowth(
+      state.channel ? state.channel.subscriberCount : 12500,
+      state.channel ? state.channel.viewCount : 485000
+    );
 
     renderHeader();
     renderKPICards();
+    renderGrowthChart();
     renderVideoLists();
     renderIdeas();
   }
@@ -207,6 +223,10 @@
     document.getElementById('kpiSubs').innerText = '...';
     document.getElementById('kpiViews').innerText = '...';
     document.getElementById('kpiVideos').innerText = '...';
+    const subsDiffEl = document.getElementById('chartSubsDiff');
+    const viewsDiffEl = document.getElementById('chartViewsDiff');
+    if (subsDiffEl) subsDiffEl.innerText = '...';
+    if (viewsDiffEl) viewsDiffEl.innerText = '...';
   }
 
   // ==========================================
@@ -228,6 +248,205 @@
     document.getElementById('kpiSubs').innerText = formatCompactNumber(state.channel.subscriberCount || 0);
     document.getElementById('kpiViews').innerText = formatCompactNumber(state.channel.viewCount || 0);
     document.getElementById('kpiVideos').innerText = formatNumberWithCommas(state.channel.videoCount || 0);
+  }
+
+  function renderGrowthChart() {
+    const chartCanvas = document.getElementById('growthChart');
+    if (!chartCanvas || !state.growthData) return;
+
+    const data = state.growthData;
+
+    // Update Summary Header Indicators
+    const subsDiffEl = document.getElementById('chartSubsDiff');
+    const viewsDiffEl = document.getElementById('chartViewsDiff');
+
+    if (subsDiffEl) {
+      const sGrowth = data.subsGrowth !== undefined ? data.subsGrowth : 0;
+      subsDiffEl.innerText = (sGrowth >= 0 ? '+' : '') + formatCompactNumber(sGrowth);
+    }
+    if (viewsDiffEl) {
+      const vGrowth = data.viewsGrowth !== undefined ? data.viewsGrowth : 0;
+      viewsDiffEl.innerText = (vGrowth >= 0 ? '+' : '') + formatCompactNumber(vGrowth);
+    }
+
+    // Ensure Chart.js is loaded
+    if (typeof Chart === 'undefined') {
+      setTimeout(renderGrowthChart, 250);
+      return;
+    }
+
+    // Destroy previous chart instance before re-creating
+    if (growthChartInstance) {
+      growthChartInstance.destroy();
+      growthChartInstance = null;
+    }
+
+    const ctx = chartCanvas.getContext('2d');
+
+    // Gradients for area fills
+    const gradSubs = ctx.createLinearGradient(0, 0, 0, 180);
+    gradSubs.addColorStop(0, 'rgba(255, 68, 68, 0.28)');
+    gradSubs.addColorStop(1, 'rgba(255, 68, 68, 0.00)');
+
+    const gradViews = ctx.createLinearGradient(0, 0, 0, 180);
+    gradViews.addColorStop(0, 'rgba(42, 171, 238, 0.28)');
+    gradViews.addColorStop(1, 'rgba(42, 171, 238, 0.00)');
+
+    growthChartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: data.days || [],
+        datasets: [
+          {
+            label: 'Subscribers',
+            data: data.subscribers || [],
+            borderColor: '#ff4444',
+            backgroundColor: gradSubs,
+            borderWidth: 2.5,
+            fill: true,
+            tension: 0.35,
+            pointBackgroundColor: '#ff4444',
+            pointBorderColor: '#ffffff',
+            pointBorderWidth: 1.5,
+            pointRadius: 3.5,
+            pointHoverRadius: 6,
+            yAxisID: 'ySubs'
+          },
+          {
+            label: 'Views',
+            data: data.views || [],
+            borderColor: '#2aabee',
+            backgroundColor: gradViews,
+            borderWidth: 2.5,
+            fill: true,
+            tension: 0.35,
+            pointBackgroundColor: '#2aabee',
+            pointBorderColor: '#ffffff',
+            pointBorderWidth: 1.5,
+            pointRadius: 3.5,
+            pointHoverRadius: 6,
+            yAxisID: 'yViews'
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+          mode: 'index',
+          intersect: false
+        },
+        plugins: {
+          legend: {
+            display: false
+          },
+          tooltip: {
+            backgroundColor: 'rgba(15, 23, 42, 0.94)',
+            titleColor: '#f8fafc',
+            bodyColor: '#cbd5e1',
+            borderColor: 'rgba(255, 255, 255, 0.15)',
+            borderWidth: 1,
+            padding: 10,
+            boxPadding: 4,
+            usePointStyle: true,
+            callbacks: {
+              label: function (context) {
+                const val = context.parsed.y;
+                const label = context.dataset.label || '';
+                return ` ${label}: ${formatNumberWithCommas(val)}`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: {
+              color: 'rgba(255, 255, 255, 0.04)',
+              drawBorder: false
+            },
+            ticks: {
+              color: '#94a3b8',
+              font: {
+                size: 11,
+                weight: '500'
+              }
+            }
+          },
+          ySubs: {
+            type: 'linear',
+            position: 'left',
+            grid: {
+              color: 'rgba(255, 255, 255, 0.04)',
+              drawBorder: false
+            },
+            ticks: {
+              color: '#ff4444',
+              font: {
+                size: 10,
+                weight: '600'
+              },
+              callback: function (value) {
+                return formatCompactNumber(value);
+              }
+            }
+          },
+          yViews: {
+            type: 'linear',
+            position: 'right',
+            grid: {
+              drawOnChartArea: false,
+              drawBorder: false
+            },
+            ticks: {
+              color: '#2aabee',
+              font: {
+                size: 10,
+                weight: '600'
+              },
+              callback: function (value) {
+                return formatCompactNumber(value);
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  function generateClientFallbackGrowth(currentSubs, currentViews) {
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const now = new Date();
+    const days = [];
+    const subs = [];
+    const views = [];
+    const subsDiffs = [15, 22, 18, 30, 25, 35, 28];
+    const viewsDiffs = [1800, 2400, 2100, 3500, 2900, 4200, 3600];
+
+    const totalSubsInc = subsDiffs.reduce((a, b) => a + b, 0);
+    const totalViewsInc = viewsDiffs.reduce((a, b) => a + b, 0);
+
+    let runningSubs = (currentSubs || 12500) - totalSubsInc;
+    let runningViews = (currentViews || 485000) - totalViewsInc;
+
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now.getTime() - i * 86400000);
+      days.push(dayNames[d.getDay()]);
+      const idx = 6 - i;
+      runningSubs += subsDiffs[idx];
+      runningViews += viewsDiffs[idx];
+      subs.push(runningSubs);
+      views.push(runningViews);
+    }
+
+    return {
+      days: days,
+      subscribers: subs,
+      views: views,
+      subsDiffs: subsDiffs,
+      viewsDiffs: viewsDiffs,
+      subsGrowth: totalSubsInc,
+      viewsGrowth: totalViewsInc
+    };
   }
 
   function renderVideoLists() {
@@ -452,7 +671,7 @@
     } else {
       // Mock local search filter
       setTimeout(() => {
-        const filtered = state.latestVideos.filter(v => 
+        const filtered = state.latestVideos.filter(v =>
           v.title.toLowerCase().includes(query.toLowerCase())
         );
         renderSearchResults(filtered);

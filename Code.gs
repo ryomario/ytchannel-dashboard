@@ -27,24 +27,6 @@ function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
-/**
- * Telegram Webhook Handler (Placeholder for existing bot commands)
- * Keep your existing doPost(e) code here or merge your command router!
- */
-function doPost(e) {
-  try {
-    if (!e || !e.postData || !e.postData.contents) {
-      return ContentService.createTextOutput("No contents");
-    }
-    const contents = JSON.parse(e.postData.contents);
-    // User's custom Telegram bot webhook logic goes here
-    return ContentService.createTextOutput("OK");
-  } catch (err) {
-    Logger.log("doPost Error: " + err.toString());
-    return ContentService.createTextOutput("ERROR: " + err.toString());
-  }
-}
-
 // ==========================================
 // CLIENT-CALLABLE RPC ENDPOINTS (google.script.run)
 // ==========================================
@@ -64,7 +46,7 @@ function getChannelDashboardData() {
     if (typeof YouTube !== 'undefined' && YouTube.Channels) {
       channelStats = fetchChannelStats(channelId);
       if (channelStats && channelStats.id) {
-        latestVideos = fetchLatestVideos(channelStats.id, 5);
+        latestVideos = fetchLatestVideos(channelStats.id, 3);
         topVideos = fetchTopVideos(channelStats.id, 5);
       }
     } else {
@@ -75,23 +57,28 @@ function getChannelDashboardData() {
     }
 
     const ideas = getIdeasStorage();
+    const activeChannel = channelStats || getFallbackChannelStats();
+    const growthData = getGrowthAnalyticsData(activeChannel.subscriberCount, activeChannel.viewCount);
 
     return {
       success: true,
-      channel: channelStats || getFallbackChannelStats(),
+      channel: activeChannel,
       latestVideos: latestVideos.length > 0 ? latestVideos : getFallbackLatestVideos(),
       topVideos: topVideos.length > 0 ? topVideos : getFallbackTopVideos(),
-      ideas: ideas
+      ideas: ideas,
+      growthData: growthData
     };
   } catch (err) {
     Logger.log("Error in getChannelDashboardData: " + err.toString());
+    const fallbackChannel = getFallbackChannelStats();
     return {
       success: false,
       error: err.toString(),
-      channel: getFallbackChannelStats(),
+      channel: fallbackChannel,
       latestVideos: getFallbackLatestVideos(),
       topVideos: getFallbackTopVideos(),
-      ideas: getIdeasStorage()
+      ideas: getIdeasStorage(),
+      growthData: getFallbackGrowthData(fallbackChannel.subscriberCount, fallbackChannel.viewCount)
     };
   }
 }
@@ -375,6 +362,117 @@ function getIdeasSheetName() {
     return CONFIG.IDEAS_SHEET_NAME;
   }
   return PropertiesService.getScriptProperties().getProperty('IDEAS_SHEET_NAME') || 'Ideas';
+}
+
+function getAnalyticsSheetName() {
+  if (typeof CONFIG !== 'undefined' && CONFIG.ANALYTICS_SHEET_NAME) {
+    return CONFIG.ANALYTICS_SHEET_NAME;
+  }
+  return PropertiesService.getScriptProperties().getProperty('ANALYTICS_SHEET_NAME') || 'Analytics';
+}
+
+/**
+ * Reads historical subscriber and view growth from AnalyticsDB spreadsheet
+ */
+function getGrowthAnalyticsData(currentSubs, currentViews) {
+  try {
+    const spreadsheetId = getSpreadsheetId();
+    if (spreadsheetId) {
+      const sheetName = getAnalyticsSheetName();
+      const ss = SpreadsheetApp.openById(spreadsheetId);
+      const sheet = ss.getSheetByName(sheetName);
+
+      if (sheet && sheet.getLastRow() > 1) {
+        const lastRow = sheet.getLastRow();
+        const numRows = Math.min(lastRow - 1, 7);
+        const startRow = lastRow - numRows + 1;
+        const dataRange = sheet.getRange(startRow, 1, numRows, 6).getValues();
+
+        if (dataRange && dataRange.length > 0) {
+          const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+          const days = [];
+          const subs = [];
+          const views = [];
+          const subsDiffs = [];
+          const viewsDiffs = [];
+
+          dataRange.forEach(row => {
+            const rawDate = row[0];
+            let dayLabel = "";
+            try {
+              const d = new Date(rawDate);
+              dayLabel = !isNaN(d.getTime()) ? dayNames[d.getDay()] : String(rawDate);
+            } catch (e) {
+              dayLabel = String(rawDate);
+            }
+            days.push(dayLabel);
+            subs.push(Number(row[1]) || 0);
+            views.push(Number(row[2]) || 0);
+            subsDiffs.push(Number(row[4]) || 0);
+            viewsDiffs.push(Number(row[5]) || 0);
+          });
+
+          // Calculate total growth over the period
+          const totalSubsGrowth = subs.length > 1 ? (subs[subs.length - 1] - subs[0]) : (subsDiffs[0] || 0);
+          const totalViewsGrowth = views.length > 1 ? (views[views.length - 1] - views[0]) : (viewsDiffs[0] || 0);
+
+          return {
+            days: days,
+            subscribers: subs,
+            views: views,
+            subsDiffs: subsDiffs,
+            viewsDiffs: viewsDiffs,
+            subsGrowth: totalSubsGrowth,
+            viewsGrowth: totalViewsGrowth
+          };
+        }
+      }
+    }
+  } catch (err) {
+    Logger.log("Error in getGrowthAnalyticsData from sheet: " + err.toString());
+  }
+
+  // Fallback to simulated 7-day trend if sheet data is empty or unavailable
+  return getFallbackGrowthData(currentSubs, currentViews);
+}
+
+function getFallbackGrowthData(currentSubs, currentViews) {
+  const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+  const now = new Date();
+  const days = [];
+  const subs = [];
+  const views = [];
+  const subsDiffs = [15, 22, 18, 30, 25, 35, 28];
+  const viewsDiffs = [1800, 2400, 2100, 3500, 2900, 4200, 3600];
+
+  const totalSubsInc = subsDiffs.reduce((a, b) => a + b, 0);
+  const totalViewsInc = viewsDiffs.reduce((a, b) => a + b, 0);
+
+  const baseSubs = (currentSubs || 12500) - totalSubsInc;
+  const baseViews = (currentViews || 485000) - totalViewsInc;
+
+  let runningSubs = baseSubs;
+  let runningViews = baseViews;
+
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(now.getTime() - i * 86400000);
+    days.push(dayNames[d.getDay()]);
+    const idx = 6 - i;
+    runningSubs += subsDiffs[idx];
+    runningViews += viewsDiffs[idx];
+    subs.push(runningSubs);
+    views.push(runningViews);
+  }
+
+  return {
+    days: days,
+    subscribers: subs,
+    views: views,
+    subsDiffs: subsDiffs,
+    viewsDiffs: viewsDiffs,
+    subsGrowth: totalSubsInc,
+    viewsGrowth: totalViewsInc
+  };
 }
 
 function getIdeasStorage() {
