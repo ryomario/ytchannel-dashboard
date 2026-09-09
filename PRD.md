@@ -56,12 +56,13 @@ Aplikasi di-deploy langsung dari project Google Apps Script yang sama:
 * **UI Elements:** 3-column micro-card layout dengan border semi-transparan dan ikon minimalis.
 
 #### 4.2 Feature 1.1: Subscribers & Views Growth Trend Chart
-* **Description:** Grafik tren pertumbuhan channel memanjang yang menampilkan kurva Subscribers dan Views harian.
-* **Data Source:** Terhubung langsung ke spreadsheet history harian dari cron `AnalyticsDB.gs` (`recordDailyStats`), dengan fallback otomatis saat offline/preview.
+* **Description:** Grafik tren pertumbuhan channel memanjang yang menampilkan persentase pertumbuhan kumulatif (%) Subscribers dan Views secara progresif.
+* **Data Source:** Terhubung langsung ke seluruh riwayat spreadsheet harian dari cron `AnalyticsDB.gs` (`recordDailyStats`), tanpa batasan 7 hari.
 * **Visual Representation:**
-  * **Sumbu X:** Hari pencatatan (7 hari terakhir: `Min`, `Sen`, `Sel`, `Rab`, `Kam`, `Jum`, `Sab`).
-  * **Dual Y-Axis:** Sumbu kiri untuk Subscribers (aksen merah `#ff4444`) dan sumbu kanan untuk Views (aksen biru `#2aabee`) agar fluktuasi kedua metrik tampak proporsional tanpa flattening.
-  * **Interactivity:** Tooltip saat touch/hover, indikator selisih pertumbuhan total periode (`+X Subs`, `+Y Views`).
+  * **Sumbu X:** Seluruh hari/tanggal pencatatan historis (adaptif: `Mon`, `Tue` jika $\le 7$ hari; `01 Sep`, `02 Sep` jika $> 7$ hari dengan `autoSkip`).
+  * **Sumbu Y:** Menghilangkan label numerik (`display: false`) untuk visual minimalis dan modern; garis kurva fokus merepresentasikan persentase perubahan kumulatif (%) dari titik awal (baseline 0.0%).
+  * **Progressive Playback Animation:** Animasi pemuatan bertahap titik per titik dari record awal hingga akhir dengan interval dinamis yang dibatasi maksimal 30 detik total durasi.
+  * **Interactivity:** Tooltip interaktif menampilkan persentase pertumbuhan (`+X.XX%`), jumlah total absolut, dan penambahan harian. Legend badge menampilkan total persentase periode.
 
 #### 4.3 Feature 2: Latest Videos Performance Tracker
 
