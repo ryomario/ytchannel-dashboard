@@ -372,7 +372,7 @@ function getAnalyticsSheetName() {
 }
 
 /**
- * Reads historical subscriber and view growth from AnalyticsDB spreadsheet
+ * Reads historical subscriber and view growth from AnalyticsDB spreadsheet (All-Time Data)
  */
 function getGrowthAnalyticsData(currentSubs, currentViews) {
   try {
@@ -384,13 +384,15 @@ function getGrowthAnalyticsData(currentSubs, currentViews) {
 
       if (sheet && sheet.getLastRow() > 1) {
         const lastRow = sheet.getLastRow();
-        const numRows = Math.min(lastRow - 1, 7);
-        const startRow = lastRow - numRows + 1;
+        const numRows = lastRow - 1; // Fetch all available historical records
+        const startRow = 2;
         const dataRange = sheet.getRange(startRow, 1, numRows, 6).getValues();
 
         if (dataRange && dataRange.length > 0) {
-          const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+          const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+          const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
           const days = [];
+          const fullDates = [];
           const subs = [];
           const views = [];
           const subsDiffs = [];
@@ -399,31 +401,55 @@ function getGrowthAnalyticsData(currentSubs, currentViews) {
           dataRange.forEach(row => {
             const rawDate = row[0];
             let dayLabel = "";
+            let fullDateStr = "";
             try {
               const d = new Date(rawDate);
-              dayLabel = !isNaN(d.getTime()) ? dayNames[d.getDay()] : String(rawDate);
+              if (!isNaN(d.getTime())) {
+                dayLabel = numRows <= 7
+                  ? dayNames[d.getDay()]
+                  : (d.getDate() + ' ' + monthNames[d.getMonth()]);
+                fullDateStr = Utilities.formatDate(d, "Asia/Jakarta", "dd MMM yyyy");
+              } else {
+                dayLabel = String(rawDate);
+                fullDateStr = String(rawDate);
+              }
             } catch (e) {
               dayLabel = String(rawDate);
+              fullDateStr = String(rawDate);
             }
             days.push(dayLabel);
+            fullDates.push(fullDateStr);
             subs.push(Number(row[1]) || 0);
             views.push(Number(row[2]) || 0);
             subsDiffs.push(Number(row[4]) || 0);
             viewsDiffs.push(Number(row[5]) || 0);
           });
 
-          // Calculate total growth over the period
+          // Calculate cumulative percentage growth from baseline (record 0 = 0.0%)
+          const baseSubs = subs[0];
+          const baseViews = views[0];
+          const subsPct = subs.map(s => (baseSubs > 0 ? Number((((s - baseSubs) / baseSubs) * 100).toFixed(2)) : 0));
+          const viewsPct = views.map(v => (baseViews > 0 ? Number((((v - baseViews) / baseViews) * 100).toFixed(2)) : 0));
+
           const totalSubsGrowth = subs.length > 1 ? (subs[subs.length - 1] - subs[0]) : (subsDiffs[0] || 0);
           const totalViewsGrowth = views.length > 1 ? (views[views.length - 1] - views[0]) : (viewsDiffs[0] || 0);
+          const totalSubsPctGrowth = subsPct.length > 0 ? subsPct[subsPct.length - 1] : 0;
+          const totalViewsPctGrowth = viewsPct.length > 0 ? viewsPct[viewsPct.length - 1] : 0;
 
           return {
             days: days,
+            fullDates: fullDates,
             subscribers: subs,
             views: views,
+            subsPercentages: subsPct,
+            viewsPercentages: viewsPct,
             subsDiffs: subsDiffs,
             viewsDiffs: viewsDiffs,
             subsGrowth: totalSubsGrowth,
-            viewsGrowth: totalViewsGrowth
+            viewsGrowth: totalViewsGrowth,
+            totalSubsPctGrowth: totalSubsPctGrowth,
+            totalViewsPctGrowth: totalViewsPctGrowth,
+            totalRecords: subs.length
           };
         }
       }
@@ -432,18 +458,21 @@ function getGrowthAnalyticsData(currentSubs, currentViews) {
     Logger.log("Error in getGrowthAnalyticsData from sheet: " + err.toString());
   }
 
-  // Fallback to simulated 7-day trend if sheet data is empty or unavailable
+  // Fallback to simulated historical trend if sheet data is empty or unavailable
   return getFallbackGrowthData(currentSubs, currentViews);
 }
 
 function getFallbackGrowthData(currentSubs, currentViews) {
-  const dayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const now = new Date();
+  const totalDays = 14;
   const days = [];
+  const fullDates = [];
   const subs = [];
   const views = [];
-  const subsDiffs = [15, 22, 18, 30, 25, 35, 28];
-  const viewsDiffs = [1800, 2400, 2100, 3500, 2900, 4200, 3600];
+  const subsDiffs = [12, 18, 15, 22, 28, 20, 35, 24, 30, 26, 32, 28, 38, 42];
+  const viewsDiffs = [1400, 1900, 1600, 2400, 3100, 2200, 3800, 2700, 3400, 3000, 3900, 3300, 4400, 4900];
 
   const totalSubsInc = subsDiffs.reduce((a, b) => a + b, 0);
   const totalViewsInc = viewsDiffs.reduce((a, b) => a + b, 0);
@@ -454,24 +483,36 @@ function getFallbackGrowthData(currentSubs, currentViews) {
   let runningSubs = baseSubs;
   let runningViews = baseViews;
 
-  for (let i = 6; i >= 0; i--) {
+  for (let i = totalDays - 1; i >= 0; i--) {
     const d = new Date(now.getTime() - i * 86400000);
-    days.push(dayNames[d.getDay()]);
-    const idx = 6 - i;
+    days.push(d.getDate() + ' ' + monthNames[d.getMonth()]);
+    fullDates.push(Utilities.formatDate(d, "Asia/Jakarta", "dd MMM yyyy"));
+    const idx = (totalDays - 1) - i;
     runningSubs += subsDiffs[idx];
     runningViews += viewsDiffs[idx];
     subs.push(runningSubs);
     views.push(runningViews);
   }
 
+  const baselineSubs = subs[0];
+  const baselineViews = views[0];
+  const subsPct = subs.map(s => (baselineSubs > 0 ? Number((((s - baselineSubs) / baselineSubs) * 100).toFixed(2)) : 0));
+  const viewsPct = views.map(v => (baselineViews > 0 ? Number((((v - baselineViews) / baselineViews) * 100).toFixed(2)) : 0));
+
   return {
     days: days,
+    fullDates: fullDates,
     subscribers: subs,
     views: views,
+    subsPercentages: subsPct,
+    viewsPercentages: viewsPct,
     subsDiffs: subsDiffs,
     viewsDiffs: viewsDiffs,
     subsGrowth: totalSubsInc,
-    viewsGrowth: totalViewsInc
+    viewsGrowth: totalViewsInc,
+    totalSubsPctGrowth: subsPct[subsPct.length - 1],
+    totalViewsPctGrowth: viewsPct[viewsPct.length - 1],
+    totalRecords: subs.length
   };
 }
 
@@ -523,13 +564,13 @@ function getIdeasStorageFromProps() {
   const defaultIdeas = [
     {
       id: '1',
-      text: 'Bikin tutorial Telegram Mini App menggunakan Google Apps Script',
+      text: 'Build a Telegram Mini App with Google Apps Script from scratch',
       status: 'pending',
       createdAt: Utilities.formatDate(new Date(), "Asia/Jakarta", "dd/MM/yyyy HH:mm")
     },
     {
       id: '2',
-      text: 'Shorts 60s: 3 Tips Optimasi YouTube Data API v3 di GAS',
+      text: 'Shorts 60s: 3 YouTube Data API v3 optimization tips in GAS',
       status: 'pending',
       createdAt: Utilities.formatDate(new Date(), "Asia/Jakarta", "dd/MM/yyyy HH:mm")
     }

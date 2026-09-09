@@ -12,6 +12,7 @@
   };
 
   let growthChartInstance = null;
+  let growthAnimationTimer = null;
   const tg = window.Telegram ? window.Telegram.WebApp : null;
 
   document.addEventListener('DOMContentLoaded', () => {
@@ -75,6 +76,9 @@
   function refreshDashboardData() {
     triggerHaptic('light');
     showLoadingSkeletons();
+
+    const btnRefresh = document.getElementById('btnRefresh');
+    if (btnRefresh) btnRefresh.classList.add('spinning');
 
     if (typeof google !== 'undefined' && google.script && google.script.run) {
       google.script.run
@@ -181,12 +185,17 @@
           ideas: [],
           growthData: {
             days: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+            fullDates: ['01 Sep 2026', '02 Sep 2026', '03 Sep 2026', '04 Sep 2026', '05 Sep 2026', '06 Sep 2026', '07 Sep 2026'],
             subscribers: [12365, 12380, 12402, 12420, 12450, 12475, 12500],
             views: [468600, 470400, 472800, 474900, 478400, 481300, 485000],
+            subsPercentages: [0, 0.12, 0.30, 0.44, 0.69, 0.89, 1.09],
+            viewsPercentages: [0, 0.38, 0.90, 1.34, 2.09, 2.71, 3.50],
             subsDiffs: [15, 15, 22, 18, 30, 25, 25],
             viewsDiffs: [1800, 1800, 2400, 2100, 3500, 2900, 3700],
             subsGrowth: 135,
-            viewsGrowth: 16400
+            viewsGrowth: 16400,
+            totalSubsPctGrowth: 1.09,
+            totalViewsPctGrowth: 3.50
           }
         });
       }, 600);
@@ -194,6 +203,9 @@
   }
 
   function handleDashboardDataSuccess(res) {
+    const btnRefresh = document.getElementById('btnRefresh');
+    if (btnRefresh) btnRefresh.classList.remove('spinning');
+
     if (!res || !res.success) {
       console.error("Dashboard RPC Error:", res ? res.error : "Unknown error");
       return;
@@ -217,6 +229,10 @@
 
   function handleDashboardDataError(err) {
     console.error("Failed to fetch dashboard data:", err);
+    const btnRefresh = document.getElementById('btnRefresh');
+    if (btnRefresh) btnRefresh.classList.remove('spinning');
+    const chartWrapper = document.querySelector('.chart-canvas-wrapper');
+    if (chartWrapper) chartWrapper.classList.remove('chart-loading');
   }
 
   function showLoadingSkeletons() {
@@ -227,6 +243,42 @@
     const viewsDiffEl = document.getElementById('chartViewsDiff');
     if (subsDiffEl) subsDiffEl.innerText = '...';
     if (viewsDiffEl) viewsDiffEl.innerText = '...';
+
+    // Stop active progressive chart animation timer immediately
+    if (growthAnimationTimer) {
+      clearInterval(growthAnimationTimer);
+      growthAnimationTimer = null;
+    }
+
+    // Reset chart data state and destroy active chart instance
+    state.growthData = null;
+    if (growthChartInstance) {
+      growthChartInstance.destroy();
+      growthChartInstance = null;
+    }
+
+    // Clear chart canvas
+    const chartCanvas = document.getElementById('growthChart');
+    if (chartCanvas) {
+      const ctx = chartCanvas.getContext('2d');
+      ctx.clearRect(0, 0, chartCanvas.width, chartCanvas.height);
+    }
+
+    // Add loading opacity to chart wrapper
+    const chartWrapper = document.querySelector('.chart-canvas-wrapper');
+    if (chartWrapper) {
+      chartWrapper.classList.add('chart-loading');
+    }
+
+    // Reset latest uploads list to skeleton state
+    const dashListEl = document.getElementById('dashVideoList');
+    if (dashListEl) {
+      dashListEl.innerHTML = `
+        <div class="video-card skeleton" style="height: 82px;"></div>
+        <div class="video-card skeleton" style="height: 82px;"></div>
+        <div class="video-card skeleton" style="height: 82px;"></div>
+      `;
+    }
   }
 
   // ==========================================
@@ -255,24 +307,33 @@
     if (!chartCanvas || !state.growthData) return;
 
     const data = state.growthData;
-
-    // Update Summary Header Indicators
     const subsDiffEl = document.getElementById('chartSubsDiff');
     const viewsDiffEl = document.getElementById('chartViewsDiff');
 
-    if (subsDiffEl) {
-      const sGrowth = data.subsGrowth !== undefined ? data.subsGrowth : 0;
-      subsDiffEl.innerText = (sGrowth >= 0 ? '+' : '') + formatCompactNumber(sGrowth);
-    }
-    if (viewsDiffEl) {
-      const vGrowth = data.viewsGrowth !== undefined ? data.viewsGrowth : 0;
-      viewsDiffEl.innerText = (vGrowth >= 0 ? '+' : '') + formatCompactNumber(vGrowth);
-    }
+    // Final percentage targets
+    const finalSubsPct = data.totalSubsPctGrowth !== undefined
+      ? data.totalSubsPctGrowth
+      : (data.subsPercentages && data.subsPercentages.length ? data.subsPercentages[data.subsPercentages.length - 1] : 0);
+    const finalViewsPct = data.totalViewsPctGrowth !== undefined
+      ? data.totalViewsPctGrowth
+      : (data.viewsPercentages && data.viewsPercentages.length ? data.viewsPercentages[data.viewsPercentages.length - 1] : 0);
 
     // Ensure Chart.js is loaded
     if (typeof Chart === 'undefined') {
       setTimeout(renderGrowthChart, 250);
       return;
+    }
+
+    // Remove loading class from chart wrapper
+    const chartWrapper = document.querySelector('.chart-canvas-wrapper');
+    if (chartWrapper) {
+      chartWrapper.classList.remove('chart-loading');
+    }
+
+    // Clear any active animation timer
+    if (growthAnimationTimer) {
+      clearInterval(growthAnimationTimer);
+      growthAnimationTimer = null;
     }
 
     // Destroy previous chart instance before re-creating
@@ -284,22 +345,34 @@
     const ctx = chartCanvas.getContext('2d');
 
     // Gradients for area fills
-    const gradSubs = ctx.createLinearGradient(0, 0, 0, 180);
-    gradSubs.addColorStop(0, 'rgba(255, 68, 68, 0.28)');
+    const gradSubs = ctx.createLinearGradient(0, 0, 0, 190);
+    gradSubs.addColorStop(0, 'rgba(255, 68, 68, 0.32)');
     gradSubs.addColorStop(1, 'rgba(255, 68, 68, 0.00)');
 
-    const gradViews = ctx.createLinearGradient(0, 0, 0, 180);
-    gradViews.addColorStop(0, 'rgba(42, 171, 238, 0.28)');
+    const gradViews = ctx.createLinearGradient(0, 0, 0, 190);
+    gradViews.addColorStop(0, 'rgba(42, 171, 238, 0.32)');
     gradViews.addColorStop(1, 'rgba(42, 171, 238, 0.00)');
+
+    const totalPoints = data.days && data.days.length ? data.days.length : 0;
+    if (totalPoints === 0) return;
+
+    // Start with the first record for progressive animation
+    const initialDays = [data.days[0]];
+    const initialSubsData = [data.subsPercentages ? data.subsPercentages[0] : 0];
+    const initialViewsData = [data.viewsPercentages ? data.viewsPercentages[0] : 0];
+
+    // Initialize badges at first point
+    if (subsDiffEl) subsDiffEl.innerText = (initialSubsData[0] >= 0 ? '+' : '') + Number(initialSubsData[0]).toFixed(2) + '%';
+    if (viewsDiffEl) viewsDiffEl.innerText = (initialViewsData[0] >= 0 ? '+' : '') + Number(initialViewsData[0]).toFixed(2) + '%';
 
     growthChartInstance = new Chart(ctx, {
       type: 'line',
       data: {
-        labels: data.days || [],
+        labels: initialDays,
         datasets: [
           {
             label: 'Subscribers',
-            data: data.subscribers || [],
+            data: initialSubsData,
             borderColor: '#ff4444',
             backgroundColor: gradSubs,
             borderWidth: 2.5,
@@ -308,13 +381,12 @@
             pointBackgroundColor: '#ff4444',
             pointBorderColor: '#ffffff',
             pointBorderWidth: 1.5,
-            pointRadius: 3.5,
-            pointHoverRadius: 6,
-            yAxisID: 'ySubs'
+            pointRadius: totalPoints > 30 ? 2 : 3.5,
+            pointHoverRadius: 6
           },
           {
             label: 'Views',
-            data: data.views || [],
+            data: initialViewsData,
             borderColor: '#2aabee',
             backgroundColor: gradViews,
             borderWidth: 2.5,
@@ -323,9 +395,8 @@
             pointBackgroundColor: '#2aabee',
             pointBorderColor: '#ffffff',
             pointBorderWidth: 1.5,
-            pointRadius: 3.5,
-            pointHoverRadius: 6,
-            yAxisID: 'yViews'
+            pointRadius: totalPoints > 30 ? 2 : 3.5,
+            pointHoverRadius: 6
           }
         ]
       },
@@ -350,10 +421,26 @@
             boxPadding: 4,
             usePointStyle: true,
             callbacks: {
+              title: function (items) {
+                if (!items || !items.length) return '';
+                const idx = items[0].dataIndex;
+                return (data.fullDates && data.fullDates[idx]) ? data.fullDates[idx] : data.days[idx];
+              },
               label: function (context) {
-                const val = context.parsed.y;
-                const label = context.dataset.label || '';
-                return ` ${label}: ${formatNumberWithCommas(val)}`;
+                const idx = context.dataIndex;
+                const isSubs = context.datasetIndex === 0;
+                const pctVal = context.parsed.y;
+                const pctStr = (pctVal >= 0 ? '+' : '') + Number(pctVal).toFixed(2) + '%';
+
+                if (isSubs) {
+                  const count = data.subscribers && data.subscribers[idx] ? formatCompactNumber(data.subscribers[idx]) : '';
+                  const diff = data.subsDiffs && data.subsDiffs[idx] !== undefined ? ` (+${formatCompactNumber(data.subsDiffs[idx])})` : '';
+                  return ` Subs: ${pctStr} • ${count}${diff}`;
+                } else {
+                  const count = data.views && data.views[idx] ? formatCompactNumber(data.views[idx]) : '';
+                  const diff = data.viewsDiffs && data.viewsDiffs[idx] !== undefined ? ` (+${formatCompactNumber(data.viewsDiffs[idx])})` : '';
+                  return ` Views: ${pctStr} • ${count}${diff}`;
+                }
               }
             }
           }
@@ -366,61 +453,76 @@
             },
             ticks: {
               color: '#94a3b8',
+              autoSkip: true,
+              maxTicksLimit: 8,
               font: {
-                size: 11,
+                size: 10.5,
                 weight: '500'
               }
             }
           },
-          ySubs: {
+          y: {
             type: 'linear',
-            position: 'left',
             grid: {
               color: 'rgba(255, 255, 255, 0.04)',
               drawBorder: false
             },
             ticks: {
-              color: '#ff4444',
-              font: {
-                size: 10,
-                weight: '600'
-              },
-              callback: function (value) {
-                return formatCompactNumber(value);
-              }
-            }
-          },
-          yViews: {
-            type: 'linear',
-            position: 'right',
-            grid: {
-              drawOnChartArea: false,
-              drawBorder: false
-            },
-            ticks: {
-              color: '#2aabee',
-              font: {
-                size: 10,
-                weight: '600'
-              },
-              callback: function (value) {
-                return formatCompactNumber(value);
-              }
+              display: false // Y-axis labels removed as requested
             }
           }
         }
       }
     });
+
+    // Progressive record-by-record playback animation (Max total load time: 30 seconds)
+    if (totalPoints > 1) {
+      const maxTotalDurationMs = 30000;
+      const targetDurationMs = Math.min(maxTotalDurationMs, Math.max(1200, (totalPoints - 1) * 120));
+      const stepIntervalMs = Math.max(20, Math.floor(targetDurationMs / (totalPoints - 1)));
+
+      let currentIdx = 0;
+      growthAnimationTimer = setInterval(() => {
+        currentIdx++;
+        if (currentIdx < totalPoints) {
+          growthChartInstance.data.labels.push(data.days[currentIdx]);
+          growthChartInstance.data.datasets[0].data.push(data.subsPercentages ? data.subsPercentages[currentIdx] : 0);
+          growthChartInstance.data.datasets[1].data.push(data.viewsPercentages ? data.viewsPercentages[currentIdx] : 0);
+
+          // Update header badges dynamically as records stream in
+          const curSubsPct = data.subsPercentages ? data.subsPercentages[currentIdx] : 0;
+          const curViewsPct = data.viewsPercentages ? data.viewsPercentages[currentIdx] : 0;
+          if (subsDiffEl) subsDiffEl.innerText = (curSubsPct >= 0 ? '+' : '') + Number(curSubsPct).toFixed(2) + '%';
+          if (viewsDiffEl) viewsDiffEl.innerText = (curViewsPct >= 0 ? '+' : '') + Number(curViewsPct).toFixed(2) + '%';
+
+          growthChartInstance.update({
+            duration: Math.min(stepIntervalMs, 80),
+            easing: 'easeOutQuad'
+          });
+        } else {
+          clearInterval(growthAnimationTimer);
+          growthAnimationTimer = null;
+          // Set final badges
+          if (subsDiffEl) subsDiffEl.innerText = (finalSubsPct >= 0 ? '+' : '') + Number(finalSubsPct).toFixed(2) + '%';
+          if (viewsDiffEl) viewsDiffEl.innerText = (finalViewsPct >= 0 ? '+' : '') + Number(finalViewsPct).toFixed(2) + '%';
+        }
+      }, stepIntervalMs);
+    } else {
+      if (subsDiffEl) subsDiffEl.innerText = (finalSubsPct >= 0 ? '+' : '') + Number(finalSubsPct).toFixed(2) + '%';
+      if (viewsDiffEl) viewsDiffEl.innerText = (finalViewsPct >= 0 ? '+' : '') + Number(finalViewsPct).toFixed(2) + '%';
+    }
   }
 
   function generateClientFallbackGrowth(currentSubs, currentViews) {
-    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const now = new Date();
+    const totalDays = 14;
     const days = [];
+    const fullDates = [];
     const subs = [];
     const views = [];
-    const subsDiffs = [15, 22, 18, 30, 25, 35, 28];
-    const viewsDiffs = [1800, 2400, 2100, 3500, 2900, 4200, 3600];
+    const subsDiffs = [12, 18, 15, 22, 28, 20, 35, 24, 30, 26, 32, 28, 38, 42];
+    const viewsDiffs = [1400, 1900, 1600, 2400, 3100, 2200, 3800, 2700, 3400, 3000, 3900, 3300, 4400, 4900];
 
     const totalSubsInc = subsDiffs.reduce((a, b) => a + b, 0);
     const totalViewsInc = viewsDiffs.reduce((a, b) => a + b, 0);
@@ -428,24 +530,36 @@
     let runningSubs = (currentSubs || 12500) - totalSubsInc;
     let runningViews = (currentViews || 485000) - totalViewsInc;
 
-    for (let i = 6; i >= 0; i--) {
+    for (let i = totalDays - 1; i >= 0; i--) {
       const d = new Date(now.getTime() - i * 86400000);
-      days.push(dayNames[d.getDay()]);
-      const idx = 6 - i;
+      days.push(d.getDate() + ' ' + monthNames[d.getMonth()]);
+      fullDates.push(d.toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' }));
+      const idx = (totalDays - 1) - i;
       runningSubs += subsDiffs[idx];
       runningViews += viewsDiffs[idx];
       subs.push(runningSubs);
       views.push(runningViews);
     }
 
+    const baselineSubs = subs[0];
+    const baselineViews = views[0];
+    const subsPct = subs.map(s => (baselineSubs > 0 ? Number((((s - baselineSubs) / baselineSubs) * 100).toFixed(2)) : 0));
+    const viewsPct = views.map(v => (baselineViews > 0 ? Number((((v - baselineViews) / baselineViews) * 100).toFixed(2)) : 0));
+
     return {
       days: days,
+      fullDates: fullDates,
       subscribers: subs,
       views: views,
+      subsPercentages: subsPct,
+      viewsPercentages: viewsPct,
       subsDiffs: subsDiffs,
       viewsDiffs: viewsDiffs,
       subsGrowth: totalSubsInc,
-      viewsGrowth: totalViewsInc
+      viewsGrowth: totalViewsInc,
+      totalSubsPctGrowth: subsPct[subsPct.length - 1],
+      totalViewsPctGrowth: viewsPct[viewsPct.length - 1],
+      totalRecords: subs.length
     };
   }
 
@@ -456,7 +570,7 @@
     // Tab 1: Latest Uploads
     if (dashListEl) {
       if (!state.latestVideos || state.latestVideos.length === 0) {
-        dashListEl.innerHTML = `<div class="empty-state"><p>Belum ada video yang diunggah.</p></div>`;
+        dashListEl.innerHTML = `<div class="empty-state"><p>No uploaded videos yet.</p></div>`;
       } else {
         dashListEl.innerHTML = state.latestVideos.map(video => buildVideoCardHtml(video)).join('');
       }
@@ -471,7 +585,7 @@
       topVids = topVids.slice(0, 5);
 
       if (topVids.length === 0) {
-        fullListEl.innerHTML = `<div class="empty-state"><p>Belum ada data video ditemukan.</p></div>`;
+        fullListEl.innerHTML = `<div class="empty-state"><p>No video data found.</p></div>`;
       } else {
         fullListEl.innerHTML = topVids.map((video, idx) => buildVideoCardHtml(video, idx + 1)).join('');
       }
@@ -557,7 +671,7 @@
       container.innerHTML = `
         <div class="empty-state">
           <svg viewBox="0 0 24 24"><path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7z"/></svg>
-          <p>${state.activeIdeaFilter === 'pending' ? 'Belum ada ide konten aktif.' : 'Belum ada ide yang diselesaikan.'}</p>
+          <p>${state.activeIdeaFilter === 'pending' ? 'No active content ideas yet.' : 'No completed ideas yet.'}</p>
         </div>
       `;
       return;
@@ -687,7 +801,7 @@
       container.innerHTML = `
         <div class="empty-state">
           <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
-          <p>Tidak ada video yang cocok dengan pencarian kamu.</p>
+          <p>No videos found matching your search.</p>
         </div>
       `;
       return;
