@@ -58,7 +58,11 @@ async function callApi(action, payload = {}) {
     // Deteksi jika server mengembalikan error 401 Unauthorized
     if (response.status === 401 || (data && data.unauthorized)) {
       const errorMsg = data.error || "Akses Ditolak: Kunci rahasia tidak valid atau kedaluwarsa.";
-      showUnauthorizedScreen(errorMsg);
+      const modal = document.getElementById('passwordModal');
+      const isModalActive = modal && modal.classList.contains('active');
+      if (!isModalActive) {
+        showUnauthorizedScreen(errorMsg);
+      }
       throw new Error(errorMsg);
     }
 

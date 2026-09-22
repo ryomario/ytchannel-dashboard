@@ -6,11 +6,15 @@
  * ===================================================
  */
 
+var _cachedConfig = null;
+
 /**
  * Mengambil seluruh konfigurasi aktif dari Script Properties
  * dengan fallback default jika property belum disetel.
+ * @param {boolean} [forceReload=false] - Jika true, paksa baca ulang dari Script Properties
  */
-function getConfig() {
+function getConfig(forceReload = false) {
+  if (_cachedConfig && !forceReload) return _cachedConfig;
   const props = PropertiesService.getScriptProperties().getProperties();
 
   let topics = {
@@ -34,7 +38,7 @@ function getConfig() {
     .map(id => id.trim())
     .filter(Boolean);
 
-  return {
+  _cachedConfig = {
     // Secret & Security
     APP_SHARED_SECRET: props.APP_SHARED_SECRET || 'secret_youtube_gas_key_2026',
     TELEGRAM_SECRET_HEADER: props.TELEGRAM_SECRET_HEADER || '',
@@ -54,6 +58,8 @@ function getConfig() {
     ANALYTICS_SHEET_NAME: props.ANALYTICS_SHEET_NAME || 'Data',
     IDEAS_SHEET_NAME: props.IDEAS_SHEET_NAME || 'Ideas',
   };
+
+  return _cachedConfig;
 }
 
 /**
@@ -102,4 +108,24 @@ function setupInitialScriptProperties() {
   PropertiesService.getScriptProperties().setProperties(initialProps, false);
   Logger.log('✅ Script Properties berhasil diinisialisasi:');
   Logger.log(PropertiesService.getScriptProperties().getProperties());
+  clearAllAppCache();
+}
+
+/**
+ * Helper: Membersihkan seluruh cache aplikasi (ScriptCache & in-memory config).
+ * Jalankan fungsi ini di Apps Script Editor jika Anda baru saja mengubah
+ * nilai di Project Settings -> Script Properties dan ingin perubahannya
+ * langsung aktif seketika tanpa menunggu sisa waktu TTL cache.
+ */
+function clearAllAppCache() {
+  _cachedConfig = null;
+  const config = getConfig(true);
+  try {
+    const cache = CacheService.getScriptCache();
+    cache.remove('DASH_DATA_' + (config.YOUTUBE_CHANNEL_ID || 'default'));
+    cache.remove('TOP_VIDS_' + (config.YOUTUBE_CHANNEL_ID || 'default'));
+    Logger.log('✅ Seluruh cache aplikasi (DASH_DATA & TOP_VIDS) berhasil dibersihkan!');
+  } catch (e) {
+    Logger.log('Error clearAllAppCache: ' + e.message);
+  }
 }
