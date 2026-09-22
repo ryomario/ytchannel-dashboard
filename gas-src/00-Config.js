@@ -1,7 +1,8 @@
 /**
  * ===================================================
- * BACKEND CONFIGURATION SERVICE
- * Mengambil konfigurasi dari Google Apps Script Script Properties
+ * 00-CONFIG.JS — BACKEND CONFIGURATION SERVICE
+ * Mengambil konfigurasi dari Google Apps Script Script Properties.
+ * Diberi prefix 00- agar dimuat pertama kali dalam urutan kompilasi GAS.
  * ===================================================
  */
 
@@ -57,9 +58,10 @@ function getConfig() {
 
 /**
  * Objek Proxy/Getter Global untuk menjaga backward compatibility
- * dengan skrip lama yang mengakses CONFIG.<KEY>.
+ * dengan skrip lain yang mengakses CONFIG.<KEY>.
+ * Menggunakan deklarasi 'var' agar ter-hoist dan aman dari Temporal Dead Zone (TDZ).
  */
-const CONFIG = {
+var CONFIG = {
   get APP_SHARED_SECRET() { return getConfig().APP_SHARED_SECRET; },
   get TELEGRAM_SECRET_HEADER() { return getConfig().TELEGRAM_SECRET_HEADER; },
   get TELEGRAM_ADMIN_IDS() { return getConfig().TELEGRAM_ADMIN_IDS; },

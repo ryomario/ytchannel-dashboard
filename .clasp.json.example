@@ -11,6 +11,20 @@
   "jsonExtensions": [
     ".json"
   ],
-  "filePushOrder": [],
+  "filePushOrder": [
+    "gas-src/00-Config.js",
+    "gas-src/01-FUNC-Helper.js",
+    "gas-src/01-FUNC-Properties.js",
+    "gas-src/01-FUNC-Telegram.js",
+    "gas-src/01-FUNC-AnalyticsDB.js",
+    "gas-src/02-MSG-Templates.js",
+    "gas-src/02-MSG-Commands.js",
+    "gas-src/02-MSG-ContentPlanner.js",
+    "gas-src/02-MSG-Notifications.js",
+    "gas-src/ApiAuth.js",
+    "gas-src/TelegramHandler.js",
+    "gas-src/Endpoints.js",
+    "gas-src/Code.js"
+  ],
   "skipSubdirectories": false
 }
