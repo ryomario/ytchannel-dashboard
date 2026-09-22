@@ -1,10 +1,11 @@
 // ===================================================
 // KIRIM PESAN KE TELEGRAM
 // ===================================================
-function sendTelegram(message, chatId = CONFIG.TELEGRAM_CHAT_ID, threadId = null) {
+function sendTelegram(message, chatId = null, threadId = null) {
+  const targetChatId = chatId || CONFIG.TELEGRAM_CHAT_ID;
   const url = `https://api.telegram.org/bot${CONFIG.TELEGRAM_TOKEN}/sendMessage`;
   const payload = {
-    chat_id: chatId,
+    chat_id: targetChatId,
     text: message,
     parse_mode: 'Markdown',
     disable_web_page_preview: true, // Agar preview link YouTube tidak memenuhi layar
