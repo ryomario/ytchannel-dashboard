@@ -1,56 +1,61 @@
 /**
- * YouTube Channel Observer & Manager — Telegram Mini App (GAS Edition)
- * File: Code.gs
+ * ===================================================
+ * FRONTEND API ENDPOINTS ROUTER & HANDLERS
+ * ===================================================
  */
-
-// Configuration Property Keys
-const PROP_CHANNEL_ID = 'YOUTUBE_CHANNEL_ID';
-const PROP_IDEAS_KEY = 'YOUTUBE_IDEAS_DATA';
 
 /**
- * Web App Entry Point
- * Renders Index.html allowing iframe display inside Telegram WebApp
+ * Main dispatcher untuk aksi-aksi dari Frontend
+ *
+ * @param {Object} body - { action, payload, timestamp, signature }
+ * @returns {Object} JSON response
  */
-function doGet(e) {
-  return HtmlService.createTemplateFromFile('Index')
-    .evaluate()
-    .setTitle('YouTube Channel Observer')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+function handleFrontendAction(body) {
+  const action = body.action;
+  const payload = body.payload || {};
+
+  switch (action) {
+    case 'getDashboardData':
+      return handleGetDashboardData();
+
+    case 'addNewIdea':
+      return handleAddNewIdea(payload.text);
+
+    case 'markIdeaDone':
+      return handleMarkIdeaDone(payload.ideaId);
+
+    case 'searchVideos':
+      return handleSearchVideos(payload.query);
+
+    default:
+      return {
+        success: false,
+        error: `Unknown action '${action}'`
+      };
+  }
 }
 
 /**
- * Server-Side Include Helper
- * Used in Index.html: <?!= include('Styles'); ?> and <?!= include('Scripts'); ?>
+ * Action: getDashboardData
+ * Mengambil metrik channel, video terbaru, video terpopuler, daftar ide, dan data analitik pertumbuhan.
  */
-function include(filename) {
-  return HtmlService.createHtmlOutputFromFile(filename).getContent();
-}
-
-// ==========================================
-// CLIENT-CALLABLE RPC ENDPOINTS (google.script.run)
-// ==========================================
-
-/**
- * RPC 1: Fetch overall channel dashboard data
- * Returns: { success: boolean, channel: object, latestVideos: array, ideas: array, error?: string }
- */
-function getChannelDashboardData() {
+function handleGetDashboardData() {
   try {
-    const channelId = getStoredChannelId();
+    const config = getConfig();
+    const channelId = config.YOUTUBE_CHANNEL_ID;
     let channelStats = null;
     let latestVideos = [];
     let topVideos = [];
 
-    // Attempt fetching live YouTube Data if YouTube API service is available
+    // Cek apakah YouTube Advanced Service aktif
     if (typeof YouTube !== 'undefined' && YouTube.Channels) {
       channelStats = fetchChannelStats(channelId);
       if (channelStats && channelStats.id) {
-        latestVideos = fetchLatestVideos(channelStats.id, 3);
+        latestVideos = fetchLatestVideos(channelStats.id, 5);
         topVideos = fetchTopVideos(channelStats.id, 5);
       }
     } else {
-      Logger.log("YouTube Advanced Service is not enabled. Returning fallback/mock channel metrics.");
+      Logger.log("YouTube Advanced Service not active. Returning fallback metrics.");
       channelStats = getFallbackChannelStats();
       latestVideos = getFallbackLatestVideos();
       topVideos = getFallbackTopVideos();
@@ -69,7 +74,7 @@ function getChannelDashboardData() {
       growthData: growthData
     };
   } catch (err) {
-    Logger.log("Error in getChannelDashboardData: " + err.toString());
+    Logger.log("Error in handleGetDashboardData: " + err.toString());
     const fallbackChannel = getFallbackChannelStats();
     return {
       success: false,
@@ -84,18 +89,20 @@ function getChannelDashboardData() {
 }
 
 /**
- * RPC 2: Add new content idea from Web App
+ * Action: addNewIdea
+ * Menyimpan ide baru ke Spreadsheet atau Script Properties fallback
  */
-function addNewIdeaFromWebApp(text) {
+function handleAddNewIdea(text) {
   try {
     if (!text || !text.trim()) {
-      throw new Error("Idea text cannot be empty.");
+      return { success: false, error: "Idea text cannot be empty." };
     }
     const cleanText = text.trim();
-    const spreadsheetId = getSpreadsheetId();
+    const config = getConfig();
+    const spreadsheetId = config.SPREADSHEET_ID;
 
     if (spreadsheetId) {
-      const sheetName = getIdeasSheetName();
+      const sheetName = config.IDEAS_SHEET_NAME || 'Ideas';
       const ss = SpreadsheetApp.openById(spreadsheetId);
       let sheet = ss.getSheetByName(sheetName);
       if (!sheet) {
@@ -104,12 +111,12 @@ function addNewIdeaFromWebApp(text) {
       }
 
       const lastRow = sheet.getLastRow();
-      const newId = lastRow; // Auto increment ID berdasarkan baris (sama seperti ContentPlanner.gs)
+      const newId = lastRow; // ID bertambah berdasarkan baris
       const createdAt = Utilities.formatDate(new Date(), "Asia/Jakarta", "dd/MM/yyyy HH:mm");
 
       sheet.appendRow([newId, cleanText, "PLANNED", createdAt]);
 
-      // Kirim notifikasi Telegram jika fungsi notifIdea tersedia dari ContentPlanner.gs
+      // Kirim notifikasi Telegram jika tersedia
       if (typeof notifIdea === 'function') {
         try {
           notifIdea(newId, cleanText, "PLANNED", createdAt);
@@ -126,7 +133,7 @@ function addNewIdeaFromWebApp(text) {
       ideas: getIdeasStorage()
     };
   } catch (err) {
-    Logger.log("Error in addNewIdeaFromWebApp: " + err.toString());
+    Logger.log("Error in handleAddNewIdea: " + err.toString());
     return {
       success: false,
       error: err.toString(),
@@ -136,14 +143,16 @@ function addNewIdeaFromWebApp(text) {
 }
 
 /**
- * RPC 3: Mark an idea as done/completed from Web App
+ * Action: markIdeaDone
+ * Mengubah status ide antara PLANNED dan DONE
  */
-function markIdeaDoneFromWebApp(ideaId) {
+function handleMarkIdeaDone(ideaId) {
   try {
-    const spreadsheetId = getSpreadsheetId();
+    const config = getConfig();
+    const spreadsheetId = config.SPREADSHEET_ID;
 
     if (spreadsheetId) {
-      const sheetName = getIdeasSheetName();
+      const sheetName = config.IDEAS_SHEET_NAME || 'Ideas';
       const ss = SpreadsheetApp.openById(spreadsheetId);
       const sheet = ss.getSheetByName(sheetName);
 
@@ -155,7 +164,7 @@ function markIdeaDoneFromWebApp(ideaId) {
 
         for (let i = 0; i < data.length; i++) {
           if (data[i][0] == ideaId || String(data[i][0]) === String(ideaId)) {
-            foundRow = i + 2; // Offset header
+            foundRow = i + 2;
             ideaText = data[i][1];
             currentStatus = data[i][2];
             break;
@@ -166,7 +175,6 @@ function markIdeaDoneFromWebApp(ideaId) {
           const newStatus = (currentStatus === "DONE") ? "PLANNED" : "DONE";
           sheet.getRange(foundRow, 3).setValue(newStatus);
 
-          // Kirim notifikasi Telegram jika notifIdea tersedia
           if (typeof notifIdea === 'function') {
             try {
               notifIdea(ideaId, ideaText, newStatus);
@@ -185,7 +193,7 @@ function markIdeaDoneFromWebApp(ideaId) {
       ideas: getIdeasStorage()
     };
   } catch (err) {
-    Logger.log("Error in markIdeaDoneFromWebApp: " + err.toString());
+    Logger.log("Error in handleMarkIdeaDone: " + err.toString());
     return {
       success: false,
       error: err.toString(),
@@ -195,15 +203,17 @@ function markIdeaDoneFromWebApp(ideaId) {
 }
 
 /**
- * RPC 4: Search channel videos by topic/keyword
+ * Action: searchVideos
+ * Mencari video berdasarkan query
  */
-function searchVideosFromWebApp(query) {
+function handleSearchVideos(query) {
   try {
     if (!query || !query.trim()) {
       return { success: true, videos: [] };
     }
 
-    const channelId = getStoredChannelId();
+    const config = getConfig();
+    const channelId = config.YOUTUBE_CHANNEL_ID;
     let searchResults = [];
 
     if (typeof YouTube !== 'undefined' && YouTube.Search) {
@@ -220,15 +230,14 @@ function searchVideosFromWebApp(query) {
       if (response && response.items && response.items.length > 0) {
         const videoIds = response.items.map(item => item.id.videoId).join(',');
         const videoStatsResponse = YouTube.Videos.list('snippet,statistics', { id: videoIds });
-        
+
         if (videoStatsResponse && videoStatsResponse.items) {
           searchResults = videoStatsResponse.items.map(formatVideoItem);
         }
       }
     } else {
-      // Filter fallback videos by search query if YouTube API is disabled
       const fallbackList = getFallbackLatestVideos();
-      searchResults = fallbackList.filter(v => 
+      searchResults = fallbackList.filter(v =>
         v.title.toLowerCase().includes(query.toLowerCase())
       );
     }
@@ -239,7 +248,7 @@ function searchVideosFromWebApp(query) {
       videos: searchResults
     };
   } catch (err) {
-    Logger.log("Error in searchVideosFromWebApp: " + err.toString());
+    Logger.log("Error in handleSearchVideos: " + err.toString());
     return {
       success: false,
       error: err.toString(),
@@ -251,11 +260,6 @@ function searchVideosFromWebApp(query) {
 // ==========================================
 // YOUTUBE DATA API HELPERS
 // ==========================================
-
-function getStoredChannelId() {
-  const props = PropertiesService.getScriptProperties();
-  return props.getProperty(PROP_CHANNEL_ID) || '';
-}
 
 function fetchChannelStats(channelId) {
   const params = { snippet: true, statistics: true };
@@ -329,8 +333,6 @@ function fetchTopVideos(channelId, limit) {
 function formatVideoItem(item) {
   const snippet = item.snippet;
   const stats = item.statistics || {};
-  
-  // Pick best available thumbnail
   const thumbs = snippet.thumbnails;
   const thumbUrl = (thumbs.medium || thumbs.high || thumbs.default || {}).url || '';
 
@@ -347,44 +349,21 @@ function formatVideoItem(item) {
 }
 
 // ==========================================
-// PERSISTENT IDEAS STORAGE (Google Sheets & Properties Fallback)
+// PERSISTENT STORAGE HELPERS
 // ==========================================
 
-function getSpreadsheetId() {
-  if (typeof CONFIG !== 'undefined' && CONFIG.SPREADSHEET_ID) {
-    return CONFIG.SPREADSHEET_ID;
-  }
-  return PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID') || '';
-}
-
-function getIdeasSheetName() {
-  if (typeof CONFIG !== 'undefined' && CONFIG.IDEAS_SHEET_NAME) {
-    return CONFIG.IDEAS_SHEET_NAME;
-  }
-  return PropertiesService.getScriptProperties().getProperty('IDEAS_SHEET_NAME') || 'Ideas';
-}
-
-function getAnalyticsSheetName() {
-  if (typeof CONFIG !== 'undefined' && CONFIG.ANALYTICS_SHEET_NAME) {
-    return CONFIG.ANALYTICS_SHEET_NAME;
-  }
-  return PropertiesService.getScriptProperties().getProperty('ANALYTICS_SHEET_NAME') || 'Analytics';
-}
-
-/**
- * Reads historical subscriber and view growth from AnalyticsDB spreadsheet (All-Time Data)
- */
 function getGrowthAnalyticsData(currentSubs, currentViews) {
   try {
-    const spreadsheetId = getSpreadsheetId();
+    const config = getConfig();
+    const spreadsheetId = config.SPREADSHEET_ID;
     if (spreadsheetId) {
-      const sheetName = getAnalyticsSheetName();
+      const sheetName = config.ANALYTICS_SHEET_NAME || 'Data';
       const ss = SpreadsheetApp.openById(spreadsheetId);
       const sheet = ss.getSheetByName(sheetName);
 
       if (sheet && sheet.getLastRow() > 1) {
         const lastRow = sheet.getLastRow();
-        const numRows = lastRow - 1; // Fetch all available historical records
+        const numRows = lastRow - 1;
         const startRow = 2;
         const dataRange = sheet.getRange(startRow, 1, numRows, 6).getValues();
 
@@ -425,7 +404,6 @@ function getGrowthAnalyticsData(currentSubs, currentViews) {
             viewsDiffs.push(Number(row[5]) || 0);
           });
 
-          // Calculate cumulative percentage growth from baseline (record 0 = 0.0%)
           const baseSubs = subs[0];
           const baseViews = views[0];
           const subsPct = subs.map(s => (baseSubs > 0 ? Number((((s - baseSubs) / baseSubs) * 100).toFixed(2)) : 0));
@@ -458,12 +436,10 @@ function getGrowthAnalyticsData(currentSubs, currentViews) {
     Logger.log("Error in getGrowthAnalyticsData from sheet: " + err.toString());
   }
 
-  // Fallback to simulated historical trend if sheet data is empty or unavailable
   return getFallbackGrowthData(currentSubs, currentViews);
 }
 
 function getFallbackGrowthData(currentSubs, currentViews) {
-  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const now = new Date();
   const totalDays = 14;
@@ -496,8 +472,8 @@ function getFallbackGrowthData(currentSubs, currentViews) {
 
   const baselineSubs = subs[0];
   const baselineViews = views[0];
-  const subsPct = subs.map(s => (baselineSubs > 0 ? Number((((s - baselineSubs) / baselineSubs) * 100).toFixed(2)) : 0));
-  const viewsPct = views.map(v => (baselineViews > 0 ? Number((((v - baselineViews) / baselineViews) * 100).toFixed(2)) : 0));
+  const subsPct = subs.map(s => (baselineSubs > 0 ? Number((((s - baselineSubs) / baseSubs) * 100).toFixed(2)) : 0));
+  const viewsPct = views.map(v => (baselineViews > 0 ? Number((((v - baselineViews) / baseViews) * 100).toFixed(2)) : 0));
 
   return {
     days: days,
@@ -518,9 +494,10 @@ function getFallbackGrowthData(currentSubs, currentViews) {
 
 function getIdeasStorage() {
   try {
-    const spreadsheetId = getSpreadsheetId();
+    const config = getConfig();
+    const spreadsheetId = config.SPREADSHEET_ID;
     if (spreadsheetId) {
-      const sheetName = getIdeasSheetName();
+      const sheetName = config.IDEAS_SHEET_NAME || 'Ideas';
       const ss = SpreadsheetApp.openById(spreadsheetId);
       const sheet = ss.getSheetByName(sheetName);
 
@@ -546,14 +523,13 @@ function getIdeasStorage() {
     Logger.log("Error reading sheet ideas: " + err.toString());
   }
 
-  // Fallback to PropertiesService if spreadsheet is not configured
   return getIdeasStorageFromProps();
 }
 
 function getIdeasStorageFromProps() {
   try {
     const props = PropertiesService.getScriptProperties();
-    const raw = props.getProperty(PROP_IDEAS_KEY);
+    const raw = props.getProperty('YOUTUBE_IDEAS_DATA');
     if (raw) {
       return JSON.parse(raw);
     }
@@ -561,7 +537,7 @@ function getIdeasStorageFromProps() {
     Logger.log("Error reading ideas storage properties: " + err.toString());
   }
 
-  const defaultIdeas = [
+  return [
     {
       id: '1',
       text: 'Build a Telegram Mini App with Google Apps Script from scratch',
@@ -575,7 +551,6 @@ function getIdeasStorageFromProps() {
       createdAt: Utilities.formatDate(new Date(), "Asia/Jakarta", "dd/MM/yyyy HH:mm")
     }
   ];
-  return defaultIdeas;
 }
 
 function addNewIdeaToProps(text) {
@@ -588,7 +563,7 @@ function addNewIdeaToProps(text) {
   };
   ideas.unshift(newIdea);
   try {
-    PropertiesService.getScriptProperties().setProperty(PROP_IDEAS_KEY, JSON.stringify(ideas));
+    PropertiesService.getScriptProperties().setProperty('YOUTUBE_IDEAS_DATA', JSON.stringify(ideas));
   } catch (e) {
     Logger.log("Error saving ideas to props: " + e.toString());
   }
@@ -603,16 +578,13 @@ function markIdeaDoneInProps(ideaId) {
     return idea;
   });
   try {
-    PropertiesService.getScriptProperties().setProperty(PROP_IDEAS_KEY, JSON.stringify(ideas));
+    PropertiesService.getScriptProperties().setProperty('YOUTUBE_IDEAS_DATA', JSON.stringify(ideas));
   } catch (e) {
     Logger.log("Error saving updated ideas to props: " + e.toString());
   }
 }
 
-// ==========================================
-// FALLBACK / MOCK DATA (When API not configured)
-// ==========================================
-
+// Fallback Mock Data
 function getFallbackChannelStats() {
   return {
     id: 'UC_sample_channel',
@@ -691,26 +663,6 @@ function getFallbackTopVideos() {
       viewCount: 45200,
       likeCount: 3900,
       commentCount: 310
-    },
-    {
-      id: 'top_vid_4',
-      title: 'Membuat Telegram Mini App dengan Google Apps Script dari Nol! 🚀',
-      publishedAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-      thumbnailUrl: 'https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=500&auto=format&fit=crop&q=60',
-      videoUrl: 'https://www.youtube.com',
-      viewCount: 28400,
-      likeCount: 2150,
-      commentCount: 185
-    },
-    {
-      id: 'top_vid_5',
-      title: 'Panduan Lengkap Integration YouTube Data API v3 di Google Spreadsheet',
-      publishedAt: new Date(Date.now() - 86400000 * 45).toISOString(),
-      thumbnailUrl: 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=500&auto=format&fit=crop&q=60',
-      videoUrl: 'https://www.youtube.com',
-      viewCount: 19800,
-      likeCount: 1450,
-      commentCount: 120
     }
   ];
 }
