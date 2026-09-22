@@ -35,8 +35,12 @@ function initTelegramApp() {
     try {
       tg.ready();
       tg.expand();
+      // Sinkronisasi warna header dan background sesuai Telegram Launch Screen (#0f172a)
       if (tg.setHeaderColor) {
-        tg.setHeaderColor('bg_color');
+        tg.setHeaderColor('#0f172a');
+      }
+      if (tg.setBackgroundColor) {
+        tg.setBackgroundColor('#0f172a');
       }
     } catch (e) {
       console.warn("Telegram WebApp initialization warning:", e);
@@ -64,7 +68,7 @@ function setupEventListeners() {
   if (passwordInput) {
     passwordInput.addEventListener('keypress', (e) => {
       if (e.key === 'Enter') {
-        handlePasswordSubmit(() => refreshDashboardData());
+        processPasswordSubmit();
       }
     });
   }
@@ -73,7 +77,7 @@ function setupEventListeners() {
   const modalSubmitBtn = document.getElementById('modalSubmitBtn');
   if (modalSubmitBtn) {
     modalSubmitBtn.addEventListener('click', () => {
-      handlePasswordSubmit(() => refreshDashboardData());
+      processPasswordSubmit();
     });
   }
 
@@ -83,6 +87,62 @@ function setupEventListeners() {
     unauthorizedRetryBtn.addEventListener('click', () => {
       showPasswordModal();
     });
+  }
+}
+
+/**
+ * Memproses submit password dengan animasi loading di tombol
+ * dan validasi server sebelum menutup modal
+ */
+async function processPasswordSubmit() {
+  const input = document.getElementById('passwordInput');
+  const val = input ? input.value.trim() : '';
+  const errorEl = document.getElementById('modalError');
+  const btn = document.getElementById('modalSubmitBtn');
+
+  if (!val) {
+    if (errorEl) {
+      errorEl.textContent = 'Silakan masukkan kata sandi rahasia.';
+      errorEl.style.display = 'block';
+    }
+    return;
+  }
+
+  if (errorEl) errorEl.style.display = 'none';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-spinner"></span> Memverifikasi...';
+  }
+
+  setAuthToken(val);
+
+  try {
+    const res = await callApi('getDashboardData');
+    if (res && res.success) {
+      hidePasswordModal();
+      hideUnauthorizedScreen();
+      handleDashboardDataSuccess(res);
+      showToast("Berhasil terautentikasi!", "success");
+    } else {
+      clearAuthToken();
+      if (errorEl) {
+        errorEl.textContent = (res && res.error) ? res.error : 'Kunci rahasia salah. Silakan coba lagi.';
+        errorEl.style.display = 'block';
+      }
+      if (input) input.select();
+    }
+  } catch (err) {
+    clearAuthToken();
+    if (errorEl) {
+      errorEl.textContent = 'Autentikasi gagal: ' + (err.message || 'Kunci rahasia salah.');
+      errorEl.style.display = 'block';
+    }
+    if (input) input.select();
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = 'Masuk ke Dashboard';
+    }
   }
 }
 
@@ -108,7 +168,7 @@ function switchTab(tabName) {
 // ==========================================
 // DATA FETCHING & API INTEGRATION
 // ==========================================
-async function refreshDashboardData() {
+async function refreshDashboardData(forceRefresh = false) {
   triggerHaptic('light');
   showLoadingSkeletons();
 
@@ -116,7 +176,7 @@ async function refreshDashboardData() {
   if (btnRefresh) btnRefresh.classList.add('spinning');
 
   try {
-    const res = await callApi('getDashboardData');
+    const res = await callApi('getDashboardData', { forceRefresh: forceRefresh });
     handleDashboardDataSuccess(res);
   } catch (err) {
     handleDashboardDataError(err);
@@ -150,9 +210,6 @@ function handleDashboardDataError(err) {
   console.error("Failed to fetch dashboard data:", err);
   const btnRefresh = document.getElementById('btnRefresh');
   if (btnRefresh) btnRefresh.classList.remove('spinning');
-  const chartWrapper = document.querySelector('.chart-canvas-wrapper');
-  if (chartWrapper) chartWrapper.classList.remove('chart-loading');
-
   showToast(err.message || "Gagal menghubungi server", "error");
 }
 
@@ -176,23 +233,42 @@ function showLoadingSkeletons() {
     growthChartInstance = null;
   }
 
+  // 1. Skeleton untuk Channel Growth Chart
+  const chartSkeleton = document.getElementById('chartSkeleton');
+  if (chartSkeleton) chartSkeleton.classList.add('active');
+
   const chartCanvas = document.getElementById('growthChart');
-  if (chartCanvas) {
-    const ctx = chartCanvas.getContext('2d');
-    ctx.clearRect(0, 0, chartCanvas.width, chartCanvas.height);
-  }
+  if (chartCanvas) chartCanvas.style.display = 'none';
 
-  const chartWrapper = document.querySelector('.chart-canvas-wrapper');
-  if (chartWrapper) {
-    chartWrapper.classList.add('chart-loading');
-  }
-
+  // 2. Skeletons untuk Latest Uploads di Dashboard
   const dashListEl = document.getElementById('dashVideoList');
   if (dashListEl) {
     dashListEl.innerHTML = `
       <div class="video-card skeleton" style="height: 82px;"></div>
       <div class="video-card skeleton" style="height: 82px;"></div>
       <div class="video-card skeleton" style="height: 82px;"></div>
+    `;
+  }
+
+  // 3. Skeletons untuk Top Videos di Tab Videos
+  const fullListEl = document.getElementById('fullVideoList');
+  if (fullListEl) {
+    fullListEl.innerHTML = `
+      <div class="video-card skeleton" style="height: 82px;"></div>
+      <div class="video-card skeleton" style="height: 82px;"></div>
+      <div class="video-card skeleton" style="height: 82px;"></div>
+      <div class="video-card skeleton" style="height: 82px;"></div>
+      <div class="video-card skeleton" style="height: 82px;"></div>
+    `;
+  }
+
+  // 4. Skeletons untuk Ideas di Tab Ideas
+  const ideaContainer = document.getElementById('ideaContainer');
+  if (ideaContainer) {
+    ideaContainer.innerHTML = `
+      <div class="idea-card skeleton" style="height: 52px;"></div>
+      <div class="idea-card skeleton" style="height: 52px;"></div>
+      <div class="idea-card skeleton" style="height: 52px;"></div>
     `;
   }
 }
@@ -238,10 +314,9 @@ function renderGrowthChart() {
     return;
   }
 
-  const chartWrapper = document.querySelector('.chart-canvas-wrapper');
-  if (chartWrapper) {
-    chartWrapper.classList.remove('chart-loading');
-  }
+  const chartSkeleton = document.getElementById('chartSkeleton');
+  if (chartSkeleton) chartSkeleton.classList.remove('active');
+  if (chartCanvas) chartCanvas.style.display = 'block';
 
   if (growthAnimationTimer) {
     clearInterval(growthAnimationTimer);

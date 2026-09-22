@@ -16,7 +16,7 @@ function handleFrontendAction(body) {
 
   switch (action) {
     case 'getDashboardData':
-      return handleGetDashboardData();
+      return handleGetDashboardData(payload);
 
     case 'addNewIdea':
       return handleAddNewIdea(payload.text);
@@ -36,13 +36,55 @@ function handleFrontendAction(body) {
 }
 
 /**
+ * Invalidate dashboard cache saat ada perubahan data (ide baru / ide selesai)
+ */
+function invalidateDashboardCache(channelId) {
+  try {
+    const targetChannel = channelId || getConfig().YOUTUBE_CHANNEL_ID || 'default';
+    const cache = CacheService.getScriptCache();
+    cache.remove('DASH_DATA_' + targetChannel);
+    Logger.log('Dashboard cache invalidated for channel: ' + targetChannel);
+  } catch (e) {
+    Logger.log('Error invalidating cache: ' + e.message);
+  }
+}
+
+/**
  * Action: getDashboardData
  * Mengambil metrik channel, video terbaru, video terpopuler, daftar ide, dan data analitik pertumbuhan.
+ * Dilengkapi dengan CacheService (TTL 5 menit) untuk respon secepat kilat.
  */
-function handleGetDashboardData() {
+function handleGetDashboardData(payload) {
+  const config = getConfig();
+  const channelId = config.YOUTUBE_CHANNEL_ID;
+  const forceRefresh = Boolean(payload && payload.forceRefresh);
+  const cacheKey = 'DASH_DATA_' + (channelId || 'default');
+  const cache = CacheService.getScriptCache();
+
+  // 1. Cek CacheService jika bukan force refresh
+  if (!forceRefresh) {
+    const cachedData = cache.get(cacheKey);
+    if (cachedData) {
+      try {
+        Logger.log('⚡ Returning cached dashboard data from CacheService');
+        return JSON.parse(cachedData);
+      } catch (e) {
+        Logger.log('Cache parse warning: ' + e.message);
+      }
+    }
+  }
+
   try {
-    const config = getConfig();
-    const channelId = config.YOUTUBE_CHANNEL_ID;
+    // 2. Buka spreadsheet satu kali saja untuk dipakai bersama
+    let ss = null;
+    if (config.SPREADSHEET_ID) {
+      try {
+        ss = SpreadsheetApp.openById(config.SPREADSHEET_ID);
+      } catch (ssErr) {
+        Logger.log('Error opening spreadsheet: ' + ssErr.message);
+      }
+    }
+
     let channelStats = null;
     let latestVideos = [];
     let topVideos = [];
@@ -51,8 +93,8 @@ function handleGetDashboardData() {
     if (typeof YouTube !== 'undefined' && YouTube.Channels) {
       channelStats = fetchChannelStats(channelId);
       if (channelStats && channelStats.id) {
-        latestVideos = fetchLatestVideos(channelStats.id, 5);
-        topVideos = fetchTopVideos(channelStats.id, 5);
+        latestVideos = fetchLatestVideos(channelStats.id, 5, channelStats.uploadsPlaylistId);
+        topVideos = fetchTopVideos(channelStats.id, 5, forceRefresh);
       }
     } else {
       Logger.log("YouTube Advanced Service not active. Returning fallback metrics.");
@@ -61,11 +103,11 @@ function handleGetDashboardData() {
       topVideos = getFallbackTopVideos();
     }
 
-    const ideas = getIdeasStorage();
+    const ideas = getIdeasStorage(ss);
     const activeChannel = channelStats || getFallbackChannelStats();
-    const growthData = getGrowthAnalyticsData(activeChannel.subscriberCount, activeChannel.viewCount);
+    const growthData = getGrowthAnalyticsData(ss, activeChannel.subscriberCount, activeChannel.viewCount);
 
-    return {
+    const result = {
       success: true,
       channel: activeChannel,
       latestVideos: latestVideos.length > 0 ? latestVideos : getFallbackLatestVideos(),
@@ -73,6 +115,16 @@ function handleGetDashboardData() {
       ideas: ideas,
       growthData: growthData
     };
+
+    // 3. Simpan ke CacheService (TTL 300 detik = 5 menit)
+    try {
+      cache.put(cacheKey, JSON.stringify(result), 300);
+      Logger.log('✅ Dashboard data cached successfully in CacheService (300s)');
+    } catch (cacheErr) {
+      Logger.log('Failed to cache dashboard data: ' + cacheErr.message);
+    }
+
+    return result;
   } catch (err) {
     Logger.log("Error in handleGetDashboardData: " + err.toString());
     const fallbackChannel = getFallbackChannelStats();
@@ -127,6 +179,8 @@ function handleAddNewIdea(text) {
     } else {
       addNewIdeaToProps(cleanText);
     }
+
+    invalidateDashboardCache(config.YOUTUBE_CHANNEL_ID);
 
     return {
       success: true,
@@ -187,6 +241,8 @@ function handleMarkIdeaDone(ideaId) {
     } else {
       markIdeaDoneInProps(ideaId);
     }
+
+    invalidateDashboardCache(config.YOUTUBE_CHANNEL_ID);
 
     return {
       success: true,
@@ -262,16 +318,20 @@ function handleSearchVideos(query) {
 // ==========================================
 
 function fetchChannelStats(channelId) {
-  const params = { snippet: true, statistics: true };
+  const params = { snippet: true, statistics: true, contentDetails: true };
   if (channelId) {
     params.id = channelId;
   } else {
     params.mine = true;
   }
 
-  const response = YouTube.Channels.list('snippet,statistics', params);
+  const response = YouTube.Channels.list(['snippet', 'statistics', 'contentDetails'], params);
   if (response && response.items && response.items.length > 0) {
     const item = response.items[0];
+    const uploadsPlaylistId = (item.contentDetails && item.contentDetails.relatedPlaylists)
+      ? item.contentDetails.relatedPlaylists.uploads
+      : null;
+
     return {
       id: item.id,
       title: item.snippet.title,
@@ -280,52 +340,101 @@ function fetchChannelStats(channelId) {
       avatarUrl: item.snippet.thumbnails.default.url,
       subscriberCount: parseInt(item.statistics.subscriberCount || 0, 10),
       viewCount: parseInt(item.statistics.viewCount || 0, 10),
-      videoCount: parseInt(item.statistics.videoCount || 0, 10)
+      videoCount: parseInt(item.statistics.videoCount || 0, 10),
+      uploadsPlaylistId: uploadsPlaylistId
     };
   }
   return null;
 }
 
-function fetchLatestVideos(channelId, limit) {
-  const searchResponse = YouTube.Search.list('snippet', {
-    channelId: channelId,
-    maxResults: limit || 5,
-    order: 'date',
-    type: 'video'
-  });
+function fetchLatestVideos(channelId, limit, uploadsPlaylistId) {
+  try {
+    // Jalur Cepat: Gunakan PlaylistItems pada Uploads Playlist (Jauh lebih cepat dari Search.list)
+    if (uploadsPlaylistId) {
+      const playlistResponse = YouTube.PlaylistItems.list('snippet', {
+        playlistId: uploadsPlaylistId,
+        maxResults: limit || 5
+      });
 
-  if (!searchResponse || !searchResponse.items || searchResponse.items.length === 0) {
-    return [];
-  }
+      if (playlistResponse && playlistResponse.items && playlistResponse.items.length > 0) {
+        const videoIds = playlistResponse.items
+          .map(item => item.snippet.resourceId && item.snippet.resourceId.videoId)
+          .filter(Boolean)
+          .join(',');
 
-  const videoIds = searchResponse.items.map(item => item.id.videoId).join(',');
-  const videosResponse = YouTube.Videos.list('snippet,statistics', { id: videoIds });
+        if (videoIds) {
+          const videosResponse = YouTube.Videos.list('snippet,statistics', { id: videoIds });
+          if (videosResponse && videosResponse.items) {
+            return videosResponse.items.map(formatVideoItem);
+          }
+        }
+      }
+    }
 
-  if (videosResponse && videosResponse.items) {
-    return videosResponse.items.map(formatVideoItem);
+    // Fallback jika playlist uploads tidak ditemukan
+    const searchResponse = YouTube.Search.list('snippet', {
+      channelId: channelId,
+      maxResults: limit || 5,
+      order: 'date',
+      type: 'video'
+    });
+
+    if (!searchResponse || !searchResponse.items || searchResponse.items.length === 0) {
+      return [];
+    }
+
+    const videoIds = searchResponse.items.map(item => item.id.videoId).join(',');
+    const videosResponse = YouTube.Videos.list('snippet,statistics', { id: videoIds });
+
+    if (videosResponse && videosResponse.items) {
+      return videosResponse.items.map(formatVideoItem);
+    }
+  } catch (e) {
+    Logger.log('Error in fetchLatestVideos: ' + e.message);
   }
   return [];
 }
 
-function fetchTopVideos(channelId, limit) {
-  const searchResponse = YouTube.Search.list('snippet', {
-    channelId: channelId,
-    maxResults: limit || 5,
-    order: 'viewCount',
-    type: 'video'
-  });
+function fetchTopVideos(channelId, limit, forceRefresh = false) {
+  const cache = CacheService.getScriptCache();
+  const cacheKey = 'TOP_VIDS_' + (channelId || 'default');
 
-  if (!searchResponse || !searchResponse.items || searchResponse.items.length === 0) {
-    return [];
+  if (!forceRefresh) {
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      try {
+        return JSON.parse(cached);
+      } catch (e) {}
+    }
   }
 
-  const videoIds = searchResponse.items.map(item => item.id.videoId).join(',');
-  const videosResponse = YouTube.Videos.list('snippet,statistics', { id: videoIds });
+  try {
+    const searchResponse = YouTube.Search.list('snippet', {
+      channelId: channelId,
+      maxResults: limit || 5,
+      order: 'viewCount',
+      type: 'video'
+    });
 
-  if (videosResponse && videosResponse.items) {
-    const formatted = videosResponse.items.map(formatVideoItem);
-    formatted.sort((a, b) => b.viewCount - a.viewCount);
-    return formatted;
+    if (!searchResponse || !searchResponse.items || searchResponse.items.length === 0) {
+      return [];
+    }
+
+    const videoIds = searchResponse.items.map(item => item.id.videoId).join(',');
+    const videosResponse = YouTube.Videos.list('snippet,statistics', { id: videoIds });
+
+    if (videosResponse && videosResponse.items) {
+      const formatted = videosResponse.items.map(formatVideoItem);
+      formatted.sort((a, b) => b.viewCount - a.viewCount);
+
+      try {
+        cache.put(cacheKey, JSON.stringify(formatted), 1800); // Cache 30 menit
+      } catch (e) {}
+
+      return formatted;
+    }
+  } catch (e) {
+    Logger.log('Error in fetchTopVideos: ' + e.message);
   }
   return [];
 }
@@ -352,13 +461,13 @@ function formatVideoItem(item) {
 // PERSISTENT STORAGE HELPERS
 // ==========================================
 
-function getGrowthAnalyticsData(currentSubs, currentViews) {
+function getGrowthAnalyticsData(passedSs, currentSubs, currentViews) {
   try {
     const config = getConfig();
     const spreadsheetId = config.SPREADSHEET_ID;
-    if (spreadsheetId) {
+    if (spreadsheetId || passedSs) {
       const sheetName = config.ANALYTICS_SHEET_NAME || 'Data';
-      const ss = SpreadsheetApp.openById(spreadsheetId);
+      const ss = passedSs || SpreadsheetApp.openById(spreadsheetId);
       const sheet = ss.getSheetByName(sheetName);
 
       if (sheet && sheet.getLastRow() > 1) {
@@ -492,13 +601,13 @@ function getFallbackGrowthData(currentSubs, currentViews) {
   };
 }
 
-function getIdeasStorage() {
+function getIdeasStorage(passedSs) {
   try {
     const config = getConfig();
     const spreadsheetId = config.SPREADSHEET_ID;
-    if (spreadsheetId) {
+    if (spreadsheetId || passedSs) {
       const sheetName = config.IDEAS_SHEET_NAME || 'Ideas';
-      const ss = SpreadsheetApp.openById(spreadsheetId);
+      const ss = passedSs || SpreadsheetApp.openById(spreadsheetId);
       const sheet = ss.getSheetByName(sheetName);
 
       if (sheet) {
