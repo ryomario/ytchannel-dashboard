@@ -1,0 +1,57 @@
+name: Deploy Frontend to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'frontend/**'
+      - 'scripts/**'
+      - '.github/workflows/deploy-frontend.yml'
+      - 'package.json'
+  workflow_dispatch:
+
+# Mengatur izin GITHUB_TOKEN untuk deployment GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Mencegah deployment tumpang tindih secara bersamaan
+concurrency:
+  group: 'pages'
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Inject Environment Variables & Build Config
+        env:
+          GAS_WEBAPP_URL: ${{ vars.GAS_WEBAPP_URL || secrets.GAS_WEBAPP_URL }}
+        run: |
+          node scripts/build-config.js
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './frontend'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

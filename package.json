@@ -1,0 +1,18 @@
+{
+  "name": "youtube-gas-bot-tele",
+  "version": "1.0.0",
+  "private": true,
+  "description": "YouTube Channel Observer & Manager with Google Apps Script and Static Frontend",
+  "scripts": {
+    "build:config": "node scripts/build-config.js",
+    "build": "node scripts/build-config.js"
+  },
+  "keywords": [
+    "youtube",
+    "google-apps-script",
+    "telegram-bot",
+    "frontend"
+  ],
+  "author": "",
+  "license": "ISC"
+}
