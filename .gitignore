@@ -1,0 +1,37 @@
+# --- Clasp & Google Apps Script Configuration ---
+# Menyembunyikan kredensial login Google Anda (SANGAT PENTING!)
+.clasprc.json
+
+# Menyembunyikan ID Script agar orang lain tidak bisa push ke project Anda
+# (Opsional: hapus baris di bawah jika ini project open-source yang butuh ID tersebut)
+.clasp.json
+
+
+# --- Node / Dependency ---
+# Menyembunyikan folder library node yang ukurannya sangat besar
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+
+# --- Environment Variables & Secrets ---
+# Menyembunyikan file yang berisi kunci API atau password
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+
+# --- Editor & System Files ---
+# Menyembunyikan file konfigurasi editor lokal dan sistem operasi
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+.DS_Store
+Thumbs.db
