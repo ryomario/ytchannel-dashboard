@@ -167,30 +167,41 @@ function handleGetDashboardData(payload) {
 }
 
 /**
+ * Mengambil data ide dari CacheService jika tersedia
+ * @returns {Array|null}
+ */
+function getCachedIdeas() {
+  try {
+    const cache = CacheService.getScriptCache();
+    const cachedData = cache.get('IDEAS_DATA_CACHE');
+    if (cachedData) {
+      return JSON.parse(cachedData);
+    }
+  } catch (e) {
+    Logger.log('Cache parse warning in getCachedIdeas: ' + e.message);
+  }
+  return null;
+}
+
+/**
  * Action: getIdeas
  * Mengambil daftar ide aktif dengan cache 2-tier (CacheService)
  */
 function handleGetIdeas() {
   try {
-    const cache = CacheService.getScriptCache();
-    const cachedData = cache.get('IDEAS_DATA_CACHE');
-    if (cachedData) {
-      try {
-        const data = JSON.parse(cachedData);
-        return {
-          success: true,
-          statusCode: 200,
-          data: data
-        };
-      } catch (parseErr) {
-        Logger.log('Cache parse warning in getIdeas: ' + parseErr.message);
-      }
+    const cached = getCachedIdeas();
+    if (cached) {
+      return {
+        success: true,
+        statusCode: 200,
+        data: cached
+      };
     }
 
     const ideas = fetchIdeasFromSource();
 
     try {
-      cache.put('IDEAS_DATA_CACHE', JSON.stringify(ideas), 600); // 10 menit TTL
+      CacheService.getScriptCache().put('IDEAS_DATA_CACHE', JSON.stringify(ideas), 600); // 10 menit TTL
     } catch (cErr) {
       Logger.log('Cache put error in getIdeas: ' + cErr.message);
     }

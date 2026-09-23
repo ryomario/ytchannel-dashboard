@@ -180,6 +180,16 @@ function switchTab(tabName) {
 
   const targetPane = document.getElementById('tab-' + tabName);
   if (targetPane) targetPane.classList.add('active');
+
+  if (tabName === 'ideas') {
+    if (typeof TMAHelper !== 'undefined') {
+      TMAHelper.showMainButton("+ Tambah Ide Baru", openCreateIdeaModal);
+    }
+  } else {
+    if (typeof TMAHelper !== 'undefined') {
+      TMAHelper.hideMainButton();
+    }
+  }
 }
 
 // ==========================================
@@ -889,6 +899,7 @@ function openCreateIdeaModal() {
   if (typeof TMAHelper !== 'undefined') {
     TMAHelper.triggerHaptic('impact', 'light');
     TMAHelper.showBackButton(closeIdeaModal);
+    TMAHelper.hideMainButton();
   }
 
   document.getElementById('ideaModalTitle').innerText = 'Tambah Ide Baru';
@@ -920,6 +931,7 @@ function openEditIdeaModal(ideaId) {
   if (typeof TMAHelper !== 'undefined') {
     TMAHelper.triggerHaptic('impact', 'light');
     TMAHelper.showBackButton(closeIdeaModal);
+    TMAHelper.hideMainButton();
   }
 
   document.getElementById('ideaModalTitle').innerText = 'Edit Ide Konten';
@@ -945,6 +957,10 @@ function closeIdeaModal() {
 
   if (typeof TMAHelper !== 'undefined') {
     TMAHelper.hideBackButton();
+    const activeNav = document.querySelector('.nav-item.active');
+    if (activeNav && activeNav.id === 'nav-ideas') {
+      TMAHelper.showMainButton("+ Tambah Ide Baru", openCreateIdeaModal);
+    }
   }
 }
 
