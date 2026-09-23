@@ -12,7 +12,10 @@ const state = {
   rawGrowthData: null,
   growthData: null,
   growthPeriod: 'all', // 'all' | '30d' | 'this_month' | '7d'
-  activeIdeaFilter: 'pending' // 'pending' | 'completed'
+  activeIdeaStatusFilter: 'ALL', // 'ALL' | 'DRAFT' | 'IN_PROGRESS' | 'DONE' | 'ARCHIVED'
+  activeIdeaPriorityFilter: 'ALL', // 'ALL' | 'HIGH' | 'MEDIUM' | 'LOW'
+  ideaSearchQuery: '',
+  undoQueue: null
 };
 
 let growthChartInstance = null;
@@ -33,17 +36,14 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function initTelegramApp() {
-  if (tg) {
+  if (typeof TMAHelper !== 'undefined') {
+    TMAHelper.initApp();
+  } else if (tg) {
     try {
       tg.ready();
       tg.expand();
-      // Sinkronisasi warna header dan background sesuai Telegram Launch Screen (#0f172a)
-      if (tg.setHeaderColor) {
-        tg.setHeaderColor('#0f172a');
-      }
-      if (tg.setBackgroundColor) {
-        tg.setBackgroundColor('#0f172a');
-      }
+      if (tg.setHeaderColor) tg.setHeaderColor('#0f172a');
+      if (tg.setBackgroundColor) tg.setBackgroundColor('#0f172a');
     } catch (e) {
       console.warn("Telegram WebApp initialization warning:", e);
     }
@@ -51,12 +51,20 @@ function initTelegramApp() {
 }
 
 function triggerHaptic(style = 'light') {
+  if (typeof TMAHelper !== 'undefined') {
+    if (style === 'selection') {
+      TMAHelper.triggerHaptic('selection');
+    } else {
+      TMAHelper.triggerHaptic('impact', style);
+    }
+    return;
+  }
   if (tg && tg.HapticFeedback) {
     try {
       if (style === 'selection') {
         tg.HapticFeedback.selectionChanged();
       } else {
-        tg.HapticFeedback.impactOccurred(style); // 'light' | 'medium' | 'heavy'
+        tg.HapticFeedback.impactOccurred(style);
       }
     } catch (e) {
       console.warn("Haptic feedback error:", e);
@@ -90,6 +98,13 @@ function setupEventListeners() {
       showPasswordModal();
     });
   }
+
+  // Keyboard shortcut: Escape untuk menutup modal
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closeIdeaModal();
+    }
+  });
 }
 
 /**
@@ -165,6 +180,16 @@ function switchTab(tabName) {
 
   const targetPane = document.getElementById('tab-' + tabName);
   if (targetPane) targetPane.classList.add('active');
+
+  if (tabName === 'ideas') {
+    if (typeof TMAHelper !== 'undefined') {
+      TMAHelper.showMainButton("+ Tambah Ide Baru", openCreateIdeaModal);
+    }
+  } else {
+    if (typeof TMAHelper !== 'undefined') {
+      TMAHelper.hideMainButton();
+    }
+  }
 }
 
 // ==========================================
@@ -198,7 +223,7 @@ function handleDashboardDataSuccess(res) {
   state.channel = res.channel;
   state.latestVideos = res.latestVideos || [];
   state.topVideos = res.topVideos || [];
-  state.ideas = res.ideas || [];
+  state.ideas = (res.ideas || []).map(normalizeIdeaItem).filter(Boolean);
   state.rawGrowthData = res.growthData || null;
   state.growthData = getFilteredGrowthData(state.growthPeriod);
 
@@ -694,15 +719,69 @@ function openVideoLink(url) {
 }
 
 // ==========================================
-// CONTENT PLANNER / IDEAS BOARD
+// ADVANCED CONTENT PLANNER / IDEAS MODULE
 // ==========================================
-function setIdeaFilter(filterType) {
-  triggerHaptic('selection');
-  state.activeIdeaFilter = filterType;
 
-  document.getElementById('filterPending').classList.toggle('active', filterType === 'pending');
-  document.getElementById('filterCompleted').classList.toggle('active', filterType === 'completed');
+function normalizeIdeaItem(i) {
+  if (!i) return null;
+  const title = i.title || i.text || '';
+  const desc = i.description || '';
+  const cat = i.category || 'General';
+  const priority = (i.priority || 'MEDIUM').toUpperCase();
+  let status = (i.status || '').toUpperCase();
+  if (!status || status === 'PENDING') status = 'DRAFT';
+  if (status === 'COMPLETED') status = 'DONE';
+  return {
+    id: String(i.id),
+    title: title,
+    description: desc,
+    category: cat,
+    priority: priority,
+    status: status,
+    is_deleted: Boolean(i.is_deleted),
+    created_at: i.created_at || i.createdAt || new Date().toISOString(),
+    updated_at: i.updated_at || new Date().toISOString()
+  };
+}
 
+function setIdeaStatusFilter(status) {
+  if (typeof TMAHelper !== 'undefined') {
+    TMAHelper.triggerHaptic('selection');
+  } else {
+    triggerHaptic('selection');
+  }
+
+  state.activeIdeaStatusFilter = status;
+
+  const statusList = ['ALL', 'DRAFT', 'IN_PROGRESS', 'DONE', 'ARCHIVED'];
+  statusList.forEach(s => {
+    const el = document.getElementById('filterStatus' + (s === 'ALL' ? 'All' : (s === 'IN_PROGRESS' ? 'InProgress' : (s.charAt(0) + s.slice(1).toLowerCase()))));
+    if (el) el.classList.toggle('active', s === status);
+  });
+
+  renderIdeas();
+}
+
+function setIdeaPriorityFilter(priority) {
+  if (typeof TMAHelper !== 'undefined') {
+    TMAHelper.triggerHaptic('selection');
+  } else {
+    triggerHaptic('selection');
+  }
+
+  state.activeIdeaPriorityFilter = priority;
+
+  const priorities = ['ALL', 'HIGH', 'MEDIUM', 'LOW'];
+  priorities.forEach(p => {
+    const el = document.getElementById('filterPriority' + (p === 'ALL' ? 'All' : (p.charAt(0) + p.slice(1).toLowerCase())));
+    if (el) el.classList.toggle('active', p === priority);
+  });
+
+  renderIdeas();
+}
+
+function handleIdeaSearch(e) {
+  state.ideaSearchQuery = (e && e.target ? e.target.value : '').trim().toLowerCase();
   renderIdeas();
 }
 
@@ -710,91 +789,455 @@ function renderIdeas() {
   const container = document.getElementById('ideaContainer');
   if (!container) return;
 
-  const pendingIdeas = state.ideas.filter(i => i.status === 'pending');
-  const completedIdeas = state.ideas.filter(i => i.status === 'completed');
+  const allActive = state.ideas.filter(i => !i.is_deleted);
 
-  document.getElementById('countPending').innerText = pendingIdeas.length;
-  document.getElementById('countCompleted').innerText = completedIdeas.length;
+  // Perbarui indikator jumlah badge status
+  const countAll = allActive.length;
+  const countDraft = allActive.filter(i => i.status === 'DRAFT').length;
+  const countInProgress = allActive.filter(i => i.status === 'IN_PROGRESS').length;
+  const countDone = allActive.filter(i => i.status === 'DONE').length;
+  const countArchived = allActive.filter(i => i.status === 'ARCHIVED').length;
 
-  const displayList = state.activeIdeaFilter === 'pending' ? pendingIdeas : completedIdeas;
+  const countAllEl = document.getElementById('countStatusAll');
+  if (countAllEl) countAllEl.innerText = countAll;
+  const countDraftEl = document.getElementById('countStatusDraft');
+  if (countDraftEl) countDraftEl.innerText = countDraft;
+  const countProgressEl = document.getElementById('countStatusInProgress');
+  if (countProgressEl) countProgressEl.innerText = countInProgress;
+  const countDoneEl = document.getElementById('countStatusDone');
+  if (countDoneEl) countDoneEl.innerText = countDone;
+  const countArchivedEl = document.getElementById('countStatusArchived');
+  if (countArchivedEl) countArchivedEl.innerText = countArchived;
+
+  // Filter daftar berdasarkan Status, Prioritas, dan Pencarian
+  let displayList = allActive;
+
+  if (state.activeIdeaStatusFilter !== 'ALL') {
+    displayList = displayList.filter(i => i.status === state.activeIdeaStatusFilter);
+  }
+
+  if (state.activeIdeaPriorityFilter !== 'ALL') {
+    displayList = displayList.filter(i => i.priority === state.activeIdeaPriorityFilter);
+  }
+
+  if (state.ideaSearchQuery) {
+    const q = state.ideaSearchQuery;
+    displayList = displayList.filter(i =>
+      i.title.toLowerCase().includes(q) ||
+      i.description.toLowerCase().includes(q) ||
+      i.category.toLowerCase().includes(q)
+    );
+  }
 
   if (displayList.length === 0) {
+    let emptyMessage = "Belum ada ide yang sesuai dengan filter.";
+    if (state.ideaSearchQuery) {
+      emptyMessage = `Tidak ada ide yang cocok dengan pencarian "${escapeHtml(state.ideaSearchQuery)}".`;
+    } else if (state.activeIdeaStatusFilter === 'ALL' && countAll === 0) {
+      emptyMessage = "Belum ada ide konten tersimpan. Klik '+ Ide Baru' untuk mulai mencatat!";
+    }
+
     container.innerHTML = `
       <div class="empty-state">
         <svg viewBox="0 0 24 24"><path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7z"/></svg>
-        <p>${state.activeIdeaFilter === 'pending' ? 'Belum ada ide konten yang direncanakan.' : 'Belum ada ide yang diselesaikan.'}</p>
+        <p>${emptyMessage}</p>
       </div>
     `;
     return;
   }
 
-  container.innerHTML = displayList.map(idea => `
-    <div class="idea-card ${idea.status === 'completed' ? 'completed' : ''}">
-      <div class="idea-text">${escapeHtml(idea.text)}</div>
-      <button class="idea-checkbox-btn" title="Toggle Status" onclick="toggleIdeaDone('${idea.id}')">
-        <svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
-      </button>
-    </div>
-  `).join('');
+  container.innerHTML = displayList.map(idea => {
+    const isDone = idea.status === 'DONE';
+    const isProgress = idea.status === 'IN_PROGRESS';
+    const isArchived = idea.status === 'ARCHIVED';
+
+    const priorityClass = idea.priority === 'HIGH' ? 'priority-high' : (idea.priority === 'LOW' ? 'priority-low' : 'priority-medium');
+    const priorityLabel = idea.priority === 'HIGH' ? 'High' : (idea.priority === 'LOW' ? 'Low' : 'Medium');
+
+    const statusBadgeClass = isDone ? 'status-done' : (isProgress ? 'status-progress' : (isArchived ? 'status-archived' : 'status-draft'));
+    const statusLabel = isDone ? 'Done' : (isProgress ? 'In Progress' : (isArchived ? 'Archived' : 'Draft'));
+
+    return `
+      <div class="idea-card ${isDone ? 'completed' : ''}" id="card_${idea.id}">
+        <div class="idea-card-header">
+          <button class="idea-checkbox-btn ${isDone ? 'checked' : ''}" title="Klik untuk toggle status" onclick="toggleIdeaStatus('${idea.id}')">
+            <svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+          </button>
+          <div class="idea-title-wrap">
+            <h4 class="idea-card-title">${escapeHtml(idea.title)}</h4>
+          </div>
+          <div class="idea-card-actions">
+            <button class="btn-card-action btn-edit" title="Edit Ide" onclick="openEditIdeaModal('${idea.id}')">
+              <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+            </button>
+            <button class="btn-card-action btn-delete" title="Hapus Ide" onclick="promptDeleteIdea('${idea.id}')">
+              <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+            </button>
+          </div>
+        </div>
+
+        ${idea.description ? `<p class="idea-card-desc">${escapeHtml(idea.description)}</p>` : ''}
+
+        <div class="idea-card-footer">
+          <div class="idea-badges">
+            <span class="idea-category-tag">🏷️ ${escapeHtml(idea.category || 'General')}</span>
+            <span class="badge-priority ${priorityClass}">⚡ ${priorityLabel}</span>
+            <span class="badge-status ${statusBadgeClass}">${statusLabel}</span>
+          </div>
+          <span class="idea-time">${getTimeElapsed(idea.created_at)}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
-function handleIdeaKeyPress(e) {
-  if (e.key === 'Enter') {
-    submitNewIdea();
+// ------------------------------------------
+// MODAL CREATE & EDIT HANDLERS
+// ------------------------------------------
+
+function openCreateIdeaModal() {
+  if (typeof TMAHelper !== 'undefined') {
+    TMAHelper.triggerHaptic('impact', 'light');
+    TMAHelper.showBackButton(closeIdeaModal);
+    TMAHelper.hideMainButton();
+  }
+
+  document.getElementById('ideaModalTitle').innerText = 'Tambah Ide Baru';
+  document.getElementById('ideaFormId').value = '';
+  document.getElementById('ideaFormTitle').value = '';
+  document.getElementById('ideaFormDesc').value = '';
+  document.getElementById('ideaFormCategory').value = 'General';
+  document.getElementById('ideaFormPriority').value = 'MEDIUM';
+  document.getElementById('ideaFormStatus').value = 'DRAFT';
+
+  const errEl = document.getElementById('ideaFormError');
+  if (errEl) errEl.style.display = 'none';
+
+  updateTitleCharCount();
+
+  const modal = document.getElementById('ideaModal');
+  if (modal) modal.classList.add('active');
+
+  setTimeout(() => {
+    const input = document.getElementById('ideaFormTitle');
+    if (input) input.focus();
+  }, 100);
+}
+
+function openEditIdeaModal(ideaId) {
+  const idea = state.ideas.find(i => String(i.id) === String(ideaId));
+  if (!idea) return;
+
+  if (typeof TMAHelper !== 'undefined') {
+    TMAHelper.triggerHaptic('impact', 'light');
+    TMAHelper.showBackButton(closeIdeaModal);
+    TMAHelper.hideMainButton();
+  }
+
+  document.getElementById('ideaModalTitle').innerText = 'Edit Ide Konten';
+  document.getElementById('ideaFormId').value = idea.id;
+  document.getElementById('ideaFormTitle').value = idea.title || '';
+  document.getElementById('ideaFormDesc').value = idea.description || '';
+  document.getElementById('ideaFormCategory').value = idea.category || 'General';
+  document.getElementById('ideaFormPriority').value = idea.priority || 'MEDIUM';
+  document.getElementById('ideaFormStatus').value = idea.status || 'DRAFT';
+
+  const errEl = document.getElementById('ideaFormError');
+  if (errEl) errEl.style.display = 'none';
+
+  updateTitleCharCount();
+
+  const modal = document.getElementById('ideaModal');
+  if (modal) modal.classList.add('active');
+}
+
+function closeIdeaModal() {
+  const modal = document.getElementById('ideaModal');
+  if (modal) modal.classList.remove('active');
+
+  if (typeof TMAHelper !== 'undefined') {
+    TMAHelper.hideBackButton();
+    const activeNav = document.querySelector('.nav-item.active');
+    if (activeNav && activeNav.id === 'nav-ideas') {
+      TMAHelper.showMainButton("+ Tambah Ide Baru", openCreateIdeaModal);
+    }
   }
 }
 
-async function submitNewIdea() {
-  const input = document.getElementById('ideaInput');
-  const text = input.value ? input.value.trim() : '';
+function handleIdeaModalBackdropClick(e) {
+  if (e.target && e.target.id === 'ideaModal') {
+    closeIdeaModal();
+  }
+}
 
-  if (!text) return;
+function updateTitleCharCount() {
+  const input = document.getElementById('ideaFormTitle');
+  const countEl = document.getElementById('titleCharCount');
+  if (input && countEl) {
+    countEl.innerText = input.value.length;
+  }
+}
 
-  triggerHaptic('medium');
-  input.value = '';
+async function submitIdeaForm() {
+  const id = document.getElementById('ideaFormId').value;
+  const title = (document.getElementById('ideaFormTitle').value || '').trim();
+  const description = (document.getElementById('ideaFormDesc').value || '').trim();
+  const category = (document.getElementById('ideaFormCategory').value || 'General').trim();
+  const priority = document.getElementById('ideaFormPriority').value;
+  const status = document.getElementById('ideaFormStatus').value;
+  const errorEl = document.getElementById('ideaFormError');
 
-  // Optimistic UI update
-  const tempIdea = {
-    id: 'idea_' + Date.now(),
-    text: text,
-    status: 'pending',
-    createdAt: new Date().toISOString()
-  };
-  state.ideas.unshift(tempIdea);
-  renderIdeas();
+  if (!title) {
+    if (errorEl) {
+      errorEl.innerText = 'Judul ide wajib diisi.';
+      errorEl.style.display = 'block';
+    }
+    if (typeof TMAHelper !== 'undefined') {
+      TMAHelper.triggerHaptic('notification', 'error');
+    }
+    return;
+  }
 
-  try {
-    const res = await callApi('addNewIdea', { text: text });
-    if (res && res.success) {
-      state.ideas = res.ideas;
+  if (errorEl) errorEl.style.display = 'none';
+  closeIdeaModal();
+
+  const now = new Date().toISOString();
+
+  if (!id) {
+    // 1. CREATE ACTION (Optimistic UI)
+    const tempId = 'temp_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+    const newIdea = {
+      id: tempId,
+      title: title,
+      description: description,
+      category: category,
+      priority: priority,
+      status: status,
+      is_deleted: false,
+      created_at: now,
+      updated_at: now
+    };
+
+    const previousSnapshot = [...state.ideas];
+    state.ideas.unshift(newIdea);
+    renderIdeas();
+
+    if (typeof TMAHelper !== 'undefined') {
+      TMAHelper.triggerHaptic('notification', 'success');
+    }
+    showToast("Ide baru berhasil ditambahkan!", "success");
+
+    try {
+      const res = await callApi('createIdea', {
+        id: tempId,
+        title: title,
+        description: description,
+        category: category,
+        priority: priority,
+        status: status
+      });
+
+      if (res && res.success && res.data && res.data.id) {
+        newIdea.id = String(res.data.id);
+        renderIdeas();
+      }
+    } catch (err) {
+      console.error("Failed to create idea on server:", err);
+      // Rollback
+      state.ideas = previousSnapshot;
       renderIdeas();
-      showToast("Ide baru berhasil disimpan!", "success");
+      showToast("Gagal menyimpan ide: " + err.message, "error");
+      if (typeof TMAHelper !== 'undefined') {
+        TMAHelper.triggerHaptic('notification', 'error');
+      }
     }
-  } catch (err) {
-    showToast("Gagal menyimpan ide: " + err.message, "error");
+
+  } else {
+    // 2. UPDATE ACTION (Optimistic UI)
+    const previousSnapshot = state.ideas.map(i => ({ ...i }));
+    state.ideas = state.ideas.map(i => {
+      if (String(i.id) === String(id)) {
+        return {
+          ...i,
+          title: title,
+          description: description,
+          category: category,
+          priority: priority,
+          status: status,
+          updated_at: now
+        };
+      }
+      return i;
+    });
+
+    renderIdeas();
+
+    if (typeof TMAHelper !== 'undefined') {
+      TMAHelper.triggerHaptic('notification', 'success');
+    }
+    showToast("Perubahan ide berhasil disimpan!", "success");
+
+    try {
+      await callApi('updateIdea', {
+        id: id,
+        title: title,
+        description: description,
+        category: category,
+        priority: priority,
+        status: status
+      });
+    } catch (err) {
+      console.error("Failed to update idea on server:", err);
+      // Rollback
+      state.ideas = previousSnapshot;
+      renderIdeas();
+      showToast("Gagal memperbarui ide: " + err.message, "error");
+      if (typeof TMAHelper !== 'undefined') {
+        TMAHelper.triggerHaptic('notification', 'error');
+      }
+    }
   }
 }
 
-async function toggleIdeaDone(ideaId) {
-  triggerHaptic('medium');
+// ------------------------------------------
+// STATUS TOGGLE (OPTIMISTIC UI)
+// ------------------------------------------
 
-  // Optimistic UI update
-  state.ideas = state.ideas.map(idea => {
-    if (idea.id === ideaId || String(idea.id) === String(ideaId)) {
-      idea.status = idea.status === 'completed' ? 'pending' : 'completed';
+async function toggleIdeaStatus(ideaId) {
+  if (typeof TMAHelper !== 'undefined') {
+    TMAHelper.triggerHaptic('impact', 'medium');
+  } else {
+    triggerHaptic('medium');
+  }
+
+  const idea = state.ideas.find(i => String(i.id) === String(ideaId));
+  if (!idea) return;
+
+  const previousSnapshot = state.ideas.map(i => ({ ...i }));
+  const nextStatus = (idea.status === 'DONE') ? 'DRAFT' : 'DONE';
+
+  state.ideas = state.ideas.map(i => {
+    if (String(i.id) === String(ideaId)) {
+      return { ...i, status: nextStatus, updated_at: new Date().toISOString() };
     }
-    return idea;
+    return i;
   });
+
   renderIdeas();
 
   try {
-    const res = await callApi('markIdeaDone', { ideaId: ideaId });
+    await callApi('updateIdea', { id: ideaId, status: nextStatus });
+  } catch (err) {
+    console.error("Failed to toggle idea status on server:", err);
+    state.ideas = previousSnapshot;
+    renderIdeas();
+    showToast("Gagal memperbarui status: " + err.message, "error");
+  }
+}
+
+// ------------------------------------------
+// SOFT DELETE & 5-SECOND UNDO TOAST
+// ------------------------------------------
+
+async function promptDeleteIdea(ideaId) {
+  let confirmed = false;
+  if (typeof TMAHelper !== 'undefined') {
+    confirmed = await TMAHelper.confirm("Apakah Anda yakin ingin menghapus ide ini?");
+  } else {
+    confirmed = window.confirm("Apakah Anda yakin ingin menghapus ide ini?");
+  }
+
+  if (!confirmed) return;
+
+  if (typeof TMAHelper !== 'undefined') {
+    TMAHelper.triggerHaptic('impact', 'medium');
+  } else {
+    triggerHaptic('medium');
+  }
+
+  // Jika masih ada item di antrean undo sebelumnya, finalisasi langsung
+  if (state.undoQueue) {
+    await finalizeDelete(state.undoQueue.id);
+  }
+
+  const idea = state.ideas.find(i => String(i.id) === String(ideaId));
+  if (!idea) return;
+
+  // Soft delete lokal (sembunyikan dari tampilan)
+  idea.is_deleted = true;
+  renderIdeas();
+
+  // Tampilkan Undo Toast 5 detik
+  const toast = document.getElementById('undoToast');
+  const progressFill = document.getElementById('undoProgressFill');
+  if (toast) {
+    toast.style.display = 'flex';
+    if (progressFill) {
+      progressFill.style.transition = 'none';
+      progressFill.style.width = '100%';
+      // Force repaint
+      void progressFill.offsetWidth;
+      progressFill.style.transition = 'width 5000ms linear';
+      progressFill.style.width = '0%';
+    }
+  }
+
+  const timerId = setTimeout(() => {
+    finalizeDelete(ideaId);
+  }, 5000);
+
+  state.undoQueue = {
+    id: ideaId,
+    timerId: timerId
+  };
+}
+
+function executeUndoDelete() {
+  if (!state.undoQueue) return;
+
+  clearTimeout(state.undoQueue.timerId);
+  const ideaId = state.undoQueue.id;
+  state.undoQueue = null;
+
+  const idea = state.ideas.find(i => String(i.id) === String(ideaId));
+  if (idea) {
+    idea.is_deleted = false;
+    renderIdeas();
+  }
+
+  const toast = document.getElementById('undoToast');
+  if (toast) toast.style.display = 'none';
+
+  if (typeof TMAHelper !== 'undefined') {
+    TMAHelper.triggerHaptic('notification', 'success');
+  }
+  showToast("Penghapusan ide dibatalkan.", "info");
+}
+
+async function finalizeDelete(ideaId) {
+  if (state.undoQueue && state.undoQueue.id === ideaId) {
+    clearTimeout(state.undoQueue.timerId);
+    state.undoQueue = null;
+  }
+
+  const toast = document.getElementById('undoToast');
+  if (toast) toast.style.display = 'none';
+
+  try {
+    const res = await callApi('deleteIdea', { id: ideaId });
     if (res && res.success) {
-      state.ideas = res.ideas;
+      // Hapus dari state lokal permanen
+      state.ideas = state.ideas.filter(i => String(i.id) !== String(ideaId));
       renderIdeas();
     }
   } catch (err) {
-    showToast("Gagal memperbarui status ide: " + err.message, "error");
+    console.error("Gagal menghapus ide dari server:", err);
+    const idea = state.ideas.find(i => String(i.id) === String(ideaId));
+    if (idea) {
+      idea.is_deleted = false;
+      renderIdeas();
+    }
+    showToast("Gagal menghapus ide: " + err.message, "error");
   }
 }
 
@@ -889,6 +1332,33 @@ function getRelativeTimeString(isoDateStr) {
   }
   const months = Math.floor(days / 30);
   return `${months}mo ago`;
+}
+
+function getTimeElapsed(dateInput) {
+  if (!dateInput) return '';
+  const past = new Date(dateInput).getTime();
+  if (isNaN(past)) return '';
+  const now = Date.now();
+  const elapsedSeconds = Math.max(0, Math.floor((now - past) / 1000));
+
+  if (elapsedSeconds < 30) return 'Baru saja';
+
+  const units = [
+    { name: 'thn', seconds: 31536000 },
+    { name: 'bln', seconds: 2592000 },
+    { name: 'mgg', seconds: 604800 },
+    { name: 'hr', seconds: 86400 },
+    { name: 'jam', seconds: 3600 },
+    { name: 'mnt', seconds: 60 }
+  ];
+
+  for (const unit of units) {
+    const interval = Math.floor(elapsedSeconds / unit.seconds);
+    if (interval >= 1) {
+      return `${interval} ${unit.name} lalu`;
+    }
+  }
+  return 'Baru saja';
 }
 
 function escapeHtml(str) {

@@ -119,25 +119,6 @@ function handleTelegramUpdate(e, contents) {
           : '⚠️ Fungsi /trend belum tersedia.';
         break;
 
-      // Content Planner Commands
-      case '/addidea':
-        replyText = (typeof handleAddIdeaCommand === 'function')
-          ? handleAddIdeaCommand(args)
-          : '⚠️ Fungsi /addidea belum tersedia.';
-        break;
-
-      case '/ideas':
-        replyText = (typeof handleListIdeasCommand === 'function')
-          ? handleListIdeasCommand()
-          : '⚠️ Fungsi /ideas belum tersedia.';
-        break;
-
-      case '/done':
-        replyText = (typeof handleDoneIdeaCommand === 'function')
-          ? handleDoneIdeaCommand(args)
-          : '⚠️ Fungsi /done belum tersedia.';
-        break;
-
       default:
         // Command tidak dikenal, abaikan agar tidak spam
         return { success: true, unknownCommand: true };
