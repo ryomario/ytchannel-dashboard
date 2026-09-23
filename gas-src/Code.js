@@ -25,13 +25,12 @@ function doPost(e) {
     }
 
     // 1. Jalur Telegram Webhook
-    // Terdeteksi jika memiliki 'update_id' atau header 'x-telegram-bot-api-secret-token'
-    const isTelegramWebhook = (body && typeof body.update_id !== 'undefined') ||
-      hasTelegramSecretHeader(e);
+    // Terdeteksi jika memiliki 'update_id'
+    const isTelegramWebhook = body && typeof body.update_id !== 'undefined';
 
     if (isTelegramWebhook) {
       const result = handleTelegramUpdate(e, body);
-      return createJsonResponse(result, result.statusCode || 200);
+      return HtmlService.createHtmlOutput(JSON.stringify(result));
     }
 
     // 2. Jalur Front-End API Request
@@ -74,19 +73,6 @@ function doGet(e) {
     message: "YouTube GAS Bot API Server is online",
     timestamp: new Date().toISOString()
   }, 200);
-}
-
-/**
- * Helper untuk memeriksa keberadaan custom header Telegram
- */
-function hasTelegramSecretHeader(e) {
-  if (!e || !e.headers) return false;
-  for (const key in e.headers) {
-    if (key.toLowerCase() === 'x-telegram-bot-api-secret-token') {
-      return true;
-    }
-  }
-  return false;
 }
 
 /**
