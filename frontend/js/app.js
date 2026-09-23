@@ -1334,6 +1334,33 @@ function getRelativeTimeString(isoDateStr) {
   return `${months}mo ago`;
 }
 
+function getTimeElapsed(dateInput) {
+  if (!dateInput) return '';
+  const past = new Date(dateInput).getTime();
+  if (isNaN(past)) return '';
+  const now = Date.now();
+  const elapsedSeconds = Math.max(0, Math.floor((now - past) / 1000));
+
+  if (elapsedSeconds < 30) return 'Baru saja';
+
+  const units = [
+    { name: 'thn', seconds: 31536000 },
+    { name: 'bln', seconds: 2592000 },
+    { name: 'mgg', seconds: 604800 },
+    { name: 'hr', seconds: 86400 },
+    { name: 'jam', seconds: 3600 },
+    { name: 'mnt', seconds: 60 }
+  ];
+
+  for (const unit of units) {
+    const interval = Math.floor(elapsedSeconds / unit.seconds);
+    if (interval >= 1) {
+      return `${interval} ${unit.name} lalu`;
+    }
+  }
+  return 'Baru saja';
+}
+
 function escapeHtml(str) {
   if (!str) return '';
   return str
