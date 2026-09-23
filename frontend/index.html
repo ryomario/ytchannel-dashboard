@@ -239,34 +239,53 @@
           </svg>
           Content Planner & Ideas
         </h2>
-      </div>
-
-      <!-- Quick Add Input -->
-      <div class="quick-add-box">
-        <input type="text" id="ideaInput" class="quick-add-input" placeholder="Tulis ide konten baru..." onkeypress="handleIdeaKeyPress(event)">
-        <button class="btn-add-idea" onclick="submitNewIdea()">
-          <svg viewBox="0 0 24 24">
-            <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
-          </svg>
-          Add
+        <button class="btn-create-idea" onclick="openCreateIdeaModal()">
+          <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+          <span>Ide Baru</span>
         </button>
       </div>
 
-      <!-- Status Filter Bar -->
-      <div class="filter-bar">
-        <div id="filterPending" class="filter-pill active" onclick="setIdeaFilter('pending')">
-          Active <span id="countPending" class="filter-count">0</span>
-        </div>
-        <div id="filterCompleted" class="filter-pill" onclick="setIdeaFilter('completed')">
-          Completed <span id="countCompleted" class="filter-count">0</span>
+      <!-- Real-Time Search Input -->
+      <div class="search-box idea-search-box">
+        <input type="text" id="ideaSearchInput" class="search-input" placeholder="Cari judul atau ringkasan ide..." oninput="handleIdeaSearch(event)">
+        <div class="search-icon-btn">
+          <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
         </div>
       </div>
 
-      <!-- Idea Checklist Container -->
+      <!-- Status Filter Pills -->
+      <div class="filter-bar status-filter-bar">
+        <div id="filterStatusAll" class="filter-pill active" onclick="setIdeaStatusFilter('ALL')">
+          Semua <span id="countStatusAll" class="filter-count">0</span>
+        </div>
+        <div id="filterStatusDraft" class="filter-pill" onclick="setIdeaStatusFilter('DRAFT')">
+          Draft <span id="countStatusDraft" class="filter-count">0</span>
+        </div>
+        <div id="filterStatusInProgress" class="filter-pill" onclick="setIdeaStatusFilter('IN_PROGRESS')">
+          Proses <span id="countStatusInProgress" class="filter-count">0</span>
+        </div>
+        <div id="filterStatusDone" class="filter-pill" onclick="setIdeaStatusFilter('DONE')">
+          Selesai <span id="countStatusDone" class="filter-count">0</span>
+        </div>
+        <div id="filterStatusArchived" class="filter-pill" onclick="setIdeaStatusFilter('ARCHIVED')">
+          Arsip <span id="countStatusArchived" class="filter-count">0</span>
+        </div>
+      </div>
+
+      <!-- Priority Filter Row -->
+      <div class="priority-filter-row">
+        <span class="filter-label">Prioritas:</span>
+        <button id="filterPriorityAll" class="priority-chip active" onclick="setIdeaPriorityFilter('ALL')">Semua</button>
+        <button id="filterPriorityHigh" class="priority-chip chip-high" onclick="setIdeaPriorityFilter('HIGH')">High</button>
+        <button id="filterPriorityMedium" class="priority-chip chip-medium" onclick="setIdeaPriorityFilter('MEDIUM')">Medium</button>
+        <button id="filterPriorityLow" class="priority-chip chip-low" onclick="setIdeaPriorityFilter('LOW')">Low</button>
+      </div>
+
+      <!-- Idea Cards Container -->
       <div id="ideaContainer" class="idea-list">
-        <div class="idea-card skeleton" style="height: 52px;"></div>
-        <div class="idea-card skeleton" style="height: 52px;"></div>
-        <div class="idea-card skeleton" style="height: 52px;"></div>
+        <div class="idea-card skeleton" style="height: 78px;"></div>
+        <div class="idea-card skeleton" style="height: 78px;"></div>
+        <div class="idea-card skeleton" style="height: 78px;"></div>
       </div>
     </section>
 
@@ -369,11 +388,83 @@
     </button>
   </div>
 
+  <!-- ==========================================
+       MODAL FORM TAMBAH / EDIT IDE
+       ========================================== -->
+  <div id="ideaModal" class="modal-overlay" onclick="handleIdeaModalBackdropClick(event)">
+    <div class="modal-card idea-modal-card">
+      <div class="modal-header">
+        <h3 id="ideaModalTitle" class="modal-title">Tambah Ide Baru</h3>
+        <button class="modal-close-btn" onclick="closeIdeaModal()" title="Tutup (Esc)">✕</button>
+      </div>
+
+      <input type="hidden" id="ideaFormId">
+
+      <div class="form-group">
+        <label for="ideaFormTitle" class="form-label">Judul Ide <span class="required">*</span></label>
+        <input type="text" id="ideaFormTitle" class="modal-input" placeholder="Misal: Tutorial Telegram Mini App..." maxlength="150" required oninput="updateTitleCharCount()">
+        <div class="char-counter"><span id="titleCharCount">0</span>/150</div>
+      </div>
+
+      <div class="form-group">
+        <label for="ideaFormDesc" class="form-label">Ringkasan / Catatan</label>
+        <textarea id="ideaFormDesc" class="modal-textarea" placeholder="Tuliskan poin-poin ide atau referensi video..." rows="3"></textarea>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group form-col">
+          <label for="ideaFormCategory" class="form-label">Kategori / Tag</label>
+          <input type="text" id="ideaFormCategory" class="modal-input" placeholder="Tech, Tutorial, Shorts..." value="General">
+        </div>
+
+        <div class="form-group form-col">
+          <label for="ideaFormPriority" class="form-label">Prioritas</label>
+          <select id="ideaFormPriority" class="modal-select">
+            <option value="LOW">🟢 Low</option>
+            <option value="MEDIUM" selected>🟡 Medium</option>
+            <option value="HIGH">🔴 High</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="ideaFormStatus" class="form-label">Status Lifecycle</label>
+        <select id="ideaFormStatus" class="modal-select">
+          <option value="DRAFT" selected>📝 Draft</option>
+          <option value="IN_PROGRESS">⏳ In Progress</option>
+          <option value="DONE">✅ Done</option>
+          <option value="ARCHIVED">📦 Archived</option>
+        </select>
+      </div>
+
+      <div id="ideaFormError" class="modal-error">Judul ide wajib diisi.</div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn-modal-cancel" onclick="closeIdeaModal()">Batal</button>
+        <button type="button" id="btnSaveIdea" class="modal-btn-submit" onclick="submitIdeaForm()">Simpan Ide</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       UNDO TOAST (5 SECONDS COUNTDOWN)
+       ========================================== -->
+  <div id="undoToast" class="undo-toast" style="display: none;">
+    <div class="undo-toast-content">
+      <span class="undo-toast-text">Ide berhasil dihapus.</span>
+      <button class="btn-undo-action" onclick="executeUndoDelete()">Batalkan (Undo)</button>
+    </div>
+    <div class="undo-progress-bar">
+      <div id="undoProgressFill" class="undo-progress-fill"></div>
+    </div>
+  </div>
+
   <!-- Scripts -->
   <script src="js/config.js"></script>
   <script src="js/crypto.js"></script>
   <script src="js/auth.js"></script>
   <script src="js/api.js"></script>
+  <script src="js/tma-helper.js"></script>
   <script src="js/app.js"></script>
 </body>
 

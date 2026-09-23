@@ -18,6 +18,18 @@ function handleFrontendAction(body) {
     case 'getDashboardData':
       return handleGetDashboardData(payload);
 
+    case 'getIdeas':
+      return handleGetIdeas();
+
+    case 'createIdea':
+      return handleCreateIdea(payload);
+
+    case 'updateIdea':
+      return handleUpdateIdea(payload);
+
+    case 'deleteIdea':
+      return handleDeleteIdea(payload);
+
     case 'addNewIdea':
       return handleAddNewIdea(payload.text);
 
@@ -36,7 +48,7 @@ function handleFrontendAction(body) {
 }
 
 /**
- * Invalidate dashboard cache saat ada perubahan data (ide baru / ide selesai)
+ * Invalidate dashboard cache saat ada perubahan data
  */
 function invalidateDashboardCache(channelId) {
   try {
@@ -47,6 +59,20 @@ function invalidateDashboardCache(channelId) {
   } catch (e) {
     Logger.log('Error invalidating cache: ' + e.message);
   }
+}
+
+/**
+ * Invalidate ideas cache saat ada mutasi ide (create, update, delete)
+ */
+function invalidateIdeasCache() {
+  try {
+    const cache = CacheService.getScriptCache();
+    cache.remove('IDEAS_DATA_CACHE');
+    Logger.log('Ideas data cache invalidated');
+  } catch (e) {
+    Logger.log('Error invalidating ideas cache: ' + e.message);
+  }
+  invalidateDashboardCache();
 }
 
 /**
@@ -141,121 +167,314 @@ function handleGetDashboardData(payload) {
 }
 
 /**
- * Action: addNewIdea
- * Menyimpan ide baru ke Spreadsheet atau Script Properties fallback
+ * Action: getIdeas
+ * Mengambil daftar ide aktif dengan cache 2-tier (CacheService)
  */
-function handleAddNewIdea(text) {
+function handleGetIdeas() {
   try {
-    if (!text || !text.trim()) {
-      return { success: false, error: "Idea text cannot be empty." };
-    }
-    const cleanText = text.trim();
-    const config = getConfig();
-    const spreadsheetId = config.SPREADSHEET_ID;
-
-    if (spreadsheetId) {
-      const sheetName = config.IDEAS_SHEET_NAME || 'Ideas';
-      const ss = SpreadsheetApp.openById(spreadsheetId);
-      let sheet = ss.getSheetByName(sheetName);
-      if (!sheet) {
-        sheet = ss.insertSheet(sheetName);
-        sheet.appendRow(["ID", "Text Ide", "Status", "Tanggal Dibuat"]);
+    const cache = CacheService.getScriptCache();
+    const cachedData = cache.get('IDEAS_DATA_CACHE');
+    if (cachedData) {
+      try {
+        const data = JSON.parse(cachedData);
+        return {
+          success: true,
+          statusCode: 200,
+          data: data
+        };
+      } catch (parseErr) {
+        Logger.log('Cache parse warning in getIdeas: ' + parseErr.message);
       }
-
-      const lastRow = sheet.getLastRow();
-      const newId = lastRow; // ID bertambah berdasarkan baris
-      const createdAt = Utilities.formatDate(new Date(), "Asia/Jakarta", "dd/MM/yyyy HH:mm");
-
-      sheet.appendRow([newId, cleanText, "PLANNED", createdAt]);
-
-      // Kirim notifikasi Telegram jika tersedia
-      if (typeof notifIdea === 'function') {
-        try {
-          notifIdea(newId, cleanText, "PLANNED", createdAt);
-        } catch (e) {
-          Logger.log("notifIdea warning: " + e.toString());
-        }
-      }
-    } else {
-      addNewIdeaToProps(cleanText);
     }
 
-    invalidateDashboardCache(config.YOUTUBE_CHANNEL_ID);
+    const ideas = fetchIdeasFromSource();
+
+    try {
+      cache.put('IDEAS_DATA_CACHE', JSON.stringify(ideas), 600); // 10 menit TTL
+    } catch (cErr) {
+      Logger.log('Cache put error in getIdeas: ' + cErr.message);
+    }
 
     return {
       success: true,
-      ideas: getIdeasStorage()
+      statusCode: 200,
+      data: ideas
     };
   } catch (err) {
-    Logger.log("Error in handleAddNewIdea: " + err.toString());
+    Logger.log('Error in handleGetIdeas: ' + err.toString());
     return {
       success: false,
+      statusCode: 500,
       error: err.toString(),
-      ideas: getIdeasStorage()
+      data: []
     };
   }
 }
 
 /**
- * Action: markIdeaDone
- * Mengubah status ide antara PLANNED dan DONE
+ * Action: createIdea
+ * Menambahkan ide baru dengan batch append dan notifikasi Telegram
  */
-function handleMarkIdeaDone(ideaId) {
+function handleCreateIdea(payload) {
   try {
+    payload = payload || {};
+    const title = (payload.title || payload.text || '').trim();
+    if (!title) {
+      return { success: false, statusCode: 400, error: "Idea title cannot be empty." };
+    }
+
+    const id = payload.id || ('id_' + Utilities.getUuid().slice(0, 8) + '_' + Date.now().toString(36));
+    const description = (payload.description || '').trim();
+    const category = (payload.category || 'General').trim();
+    const priority = (payload.priority || 'MEDIUM').toUpperCase();
+    const status = (payload.status || 'DRAFT').toUpperCase();
+    const now = new Date().toISOString();
+
     const config = getConfig();
     const spreadsheetId = config.SPREADSHEET_ID;
 
     if (spreadsheetId) {
-      const sheetName = config.IDEAS_SHEET_NAME || 'Ideas';
       const ss = SpreadsheetApp.openById(spreadsheetId);
-      const sheet = ss.getSheetByName(sheetName);
+      const sheet = ensureIdeasSheetSchema(ss);
+      sheet.appendRow([id, title, description, category, priority, status, false, now, now]);
+    } else {
+      let ideas = getIdeasStorageFromProps();
+      ideas.unshift({
+        id: id,
+        title: title,
+        description: description,
+        category: category,
+        priority: priority,
+        status: status,
+        is_deleted: false,
+        created_at: now,
+        updated_at: now
+      });
+      PropertiesService.getScriptProperties().setProperty('YOUTUBE_IDEAS_DATA_V2', JSON.stringify(ideas));
+    }
 
-      if (sheet && sheet.getLastRow() > 1) {
-        const data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getValues();
-        let foundRow = -1;
-        let ideaText = "";
-        let currentStatus = "";
+    // Invalidate cache
+    invalidateIdeasCache();
 
-        for (let i = 0; i < data.length; i++) {
-          if (data[i][0] == ideaId || String(data[i][0]) === String(ideaId)) {
-            foundRow = i + 2;
-            ideaText = data[i][1];
-            currentStatus = data[i][2];
+    // Notifikasi Telegram Topic jika ada
+    if (typeof notifIdea === 'function') {
+      try {
+        notifIdea(id, title, status);
+      } catch (e) {
+        Logger.log("notifIdea warning: " + e.toString());
+      }
+    }
+
+    return {
+      success: true,
+      statusCode: 201,
+      data: { id: id }
+    };
+  } catch (err) {
+    Logger.log("Error in handleCreateIdea: " + err.toString());
+    return {
+      success: false,
+      statusCode: 500,
+      error: err.toString()
+    };
+  }
+}
+
+/**
+ * Action: updateIdea
+ * Memperbarui data ide dengan in-memory batch operations
+ */
+function handleUpdateIdea(payload) {
+  try {
+    payload = payload || {};
+    const id = payload.id;
+    if (!id) {
+      return { success: false, statusCode: 400, error: "Idea ID is required for update." };
+    }
+
+    const config = getConfig();
+    const spreadsheetId = config.SPREADSHEET_ID;
+    const now = new Date().toISOString();
+    let updatedTitle = '';
+    let updatedStatus = '';
+
+    if (spreadsheetId) {
+      const ss = SpreadsheetApp.openById(spreadsheetId);
+      const sheet = ensureIdeasSheetSchema(ss);
+      const lastRow = sheet.getLastRow();
+
+      if (lastRow > 1) {
+        // In-memory batch read & write
+        const range = sheet.getRange(1, 1, lastRow, 9);
+        const values = range.getValues();
+        let found = false;
+
+        for (let i = 1; i < values.length; i++) {
+          if (String(values[i][0]) === String(id)) {
+            if (payload.title !== undefined) values[i][1] = String(payload.title).trim();
+            if (payload.description !== undefined) values[i][2] = String(payload.description).trim();
+            if (payload.category !== undefined) values[i][3] = String(payload.category).trim();
+            if (payload.priority !== undefined) values[i][4] = String(payload.priority).toUpperCase();
+            if (payload.status !== undefined) values[i][5] = String(payload.status).toUpperCase();
+            values[i][8] = now;
+
+            updatedTitle = values[i][1];
+            updatedStatus = values[i][5];
+            found = true;
             break;
           }
         }
 
-        if (foundRow !== -1) {
-          const newStatus = (currentStatus === "DONE") ? "PLANNED" : "DONE";
-          sheet.getRange(foundRow, 3).setValue(newStatus);
-
-          if (typeof notifIdea === 'function') {
-            try {
-              notifIdea(ideaId, ideaText, newStatus);
-            } catch (e) {
-              Logger.log("notifIdea warning: " + e.toString());
-            }
-          }
+        if (!found) {
+          return { success: false, statusCode: 404, error: "Idea not found." };
         }
+
+        range.setValues(values);
       }
     } else {
-      markIdeaDoneInProps(ideaId);
+      let ideas = getIdeasStorageFromProps();
+      let found = false;
+      ideas = ideas.map(idea => {
+        if (String(idea.id) === String(id)) {
+          found = true;
+          if (payload.title !== undefined) idea.title = String(payload.title).trim();
+          if (payload.description !== undefined) idea.description = String(payload.description).trim();
+          if (payload.category !== undefined) idea.category = String(payload.category).trim();
+          if (payload.priority !== undefined) idea.priority = String(payload.priority).toUpperCase();
+          if (payload.status !== undefined) idea.status = String(payload.status).toUpperCase();
+          idea.updated_at = now;
+          updatedTitle = idea.title;
+          updatedStatus = idea.status;
+        }
+        return idea;
+      });
+
+      if (!found) {
+        return { success: false, statusCode: 404, error: "Idea not found." };
+      }
+      PropertiesService.getScriptProperties().setProperty('YOUTUBE_IDEAS_DATA_V2', JSON.stringify(ideas));
     }
 
-    invalidateDashboardCache(config.YOUTUBE_CHANNEL_ID);
+    invalidateIdeasCache();
+
+    if (updatedStatus === 'DONE' && typeof notifIdea === 'function') {
+      try {
+        notifIdea(id, updatedTitle, 'DONE');
+      } catch (e) {
+        Logger.log("notifIdea warning: " + e.toString());
+      }
+    }
 
     return {
       success: true,
-      ideas: getIdeasStorage()
+      statusCode: 200,
+      message: "Idea updated successfully"
     };
   } catch (err) {
-    Logger.log("Error in handleMarkIdeaDone: " + err.toString());
+    Logger.log("Error in handleUpdateIdea: " + err.toString());
     return {
       success: false,
-      error: err.toString(),
-      ideas: getIdeasStorage()
+      statusCode: 500,
+      error: err.toString()
     };
   }
+}
+
+/**
+ * Action: deleteIdea (Soft Delete)
+ * Menandai is_deleted = true pada baris yang sesuai
+ */
+function handleDeleteIdea(payload) {
+  try {
+    payload = payload || {};
+    const id = payload.id;
+    if (!id) {
+      return { success: false, statusCode: 400, error: "Idea ID is required for deletion." };
+    }
+
+    const config = getConfig();
+    const spreadsheetId = config.SPREADSHEET_ID;
+    const now = new Date().toISOString();
+
+    if (spreadsheetId) {
+      const ss = SpreadsheetApp.openById(spreadsheetId);
+      const sheet = ensureIdeasSheetSchema(ss);
+      const lastRow = sheet.getLastRow();
+
+      if (lastRow > 1) {
+        const range = sheet.getRange(1, 1, lastRow, 9);
+        const values = range.getValues();
+        let found = false;
+
+        for (let i = 1; i < values.length; i++) {
+          if (String(values[i][0]) === String(id)) {
+            values[i][6] = true; // is_deleted = true
+            values[i][8] = now;
+            found = true;
+            break;
+          }
+        }
+
+        if (!found) {
+          return { success: false, statusCode: 404, error: "Idea not found." };
+        }
+
+        range.setValues(values);
+      }
+    } else {
+      let ideas = getIdeasStorageFromProps();
+      ideas = ideas.map(idea => {
+        if (String(idea.id) === String(id)) {
+          idea.is_deleted = true;
+          idea.updated_at = now;
+        }
+        return idea;
+      });
+      PropertiesService.getScriptProperties().setProperty('YOUTUBE_IDEAS_DATA_V2', JSON.stringify(ideas));
+    }
+
+    invalidateIdeasCache();
+
+    return {
+      success: true,
+      statusCode: 200,
+      message: "Idea soft deleted"
+    };
+  } catch (err) {
+    Logger.log("Error in handleDeleteIdea: " + err.toString());
+    return {
+      success: false,
+      statusCode: 500,
+      error: err.toString()
+    };
+  }
+}
+
+/**
+ * Legacy Compatibility: addNewIdea
+ */
+function handleAddNewIdea(text) {
+  const result = handleCreateIdea({ title: text });
+  return {
+    success: result.success,
+    error: result.error,
+    ideas: fetchIdeasFromSource()
+  };
+}
+
+/**
+ * Legacy Compatibility: markIdeaDone
+ */
+function handleMarkIdeaDone(ideaId) {
+  const ideas = fetchIdeasFromSource();
+  const target = ideas.find(i => String(i.id) === String(ideaId));
+  const newStatus = (target && target.status === 'DONE') ? 'DRAFT' : 'DONE';
+  const result = handleUpdateIdea({ id: ideaId, status: newStatus });
+  return {
+    success: result.success,
+    error: result.error,
+    ideas: fetchIdeasFromSource()
+  };
 }
 
 /**
@@ -619,29 +838,117 @@ function getFallbackGrowthData(currentSubs, currentViews) {
   };
 }
 
-function getIdeasStorage(passedSs) {
+const IDEAS_HEADERS = ["id", "title", "description", "category", "priority", "status", "is_deleted", "created_at", "updated_at"];
+
+/**
+ * Memastikan header 9 kolom pada sheet Ideas dan migrasi data lama jika diperlukan
+ */
+function ensureIdeasSheetSchema(ss) {
+  const config = getConfig();
+  const sheetName = config.IDEAS_SHEET_NAME || 'Ideas';
+  let sheet = ss.getSheetByName(sheetName);
+
+  if (!sheet) {
+    sheet = ss.insertSheet(sheetName);
+    sheet.appendRow(IDEAS_HEADERS);
+    return sheet;
+  }
+
+  const lastRow = sheet.getLastRow();
+  const lastCol = sheet.getLastColumn();
+
+  if (lastRow === 0) {
+    sheet.appendRow(IDEAS_HEADERS);
+    return sheet;
+  }
+
+  // Cek apakah header sudah 9 kolom atau masih format 4 kolom (ID, Text Ide, Status, Tanggal Dibuat)
+  const currentHeaders = sheet.getRange(1, 1, 1, Math.max(lastCol, 1)).getValues()[0];
+  const secondHeader = String(currentHeaders[1] || '').trim().toLowerCase();
+
+  // Jika kolom kedua adalah 'text ide' atau jumlah kolom < 9, lakukan migrasi data in-memory
+  if (currentHeaders.length < 9 || secondHeader === 'text ide') {
+    Logger.log("Migrating Ideas sheet schema to 9 columns standard...");
+    const rawData = sheet.getRange(1, 1, lastRow, lastCol).getValues();
+    const rows = rawData.slice(1); // skip header lama
+
+    const migratedRows = rows.map((r, idx) => {
+      const id = String(r[0] || ('id_' + (idx + 1)));
+      const title = String(r[1] || '');
+      const rawStatus = String(r[2] || '').trim().toUpperCase();
+      const status = rawStatus === 'DONE' ? 'DONE' : (rawStatus === 'IN_PROGRESS' ? 'IN_PROGRESS' : 'DRAFT');
+      const createdAt = r[3] ? String(r[3]) : new Date().toISOString();
+      return [
+        id,
+        title,
+        '', // description
+        'General', // category
+        'MEDIUM', // priority
+        status,
+        false, // is_deleted
+        createdAt,
+        new Date().toISOString() // updated_at
+      ];
+    });
+
+    sheet.clearContents();
+    sheet.getRange(1, 1, 1, IDEAS_HEADERS.length).setValues([IDEAS_HEADERS]);
+    if (migratedRows.length > 0) {
+      sheet.getRange(2, 1, migratedRows.length, IDEAS_HEADERS.length).setValues(migratedRows);
+    }
+  }
+
+  return sheet;
+}
+
+/**
+ * Mengambil daftar ide aktif dari Spreadsheet atau fallback PropertiesService
+ */
+function fetchIdeasFromSource(passedSs) {
   try {
     const config = getConfig();
     const spreadsheetId = config.SPREADSHEET_ID;
     if (spreadsheetId || passedSs) {
-      const sheetName = config.IDEAS_SHEET_NAME || 'Ideas';
       const ss = passedSs || SpreadsheetApp.openById(spreadsheetId);
-      const sheet = ss.getSheetByName(sheetName);
+      const sheet = ensureIdeasSheetSchema(ss);
 
       if (sheet) {
         const lastRow = sheet.getLastRow();
         if (lastRow > 1) {
-          const data = sheet.getRange(2, 1, lastRow - 1, 4).getValues();
-          return data.map(row => {
-            const rawStatus = (row[2] || '').toString().toUpperCase();
-            return {
-              id: row[0],
-              text: row[1],
-              status: rawStatus === 'DONE' ? 'completed' : 'pending',
-              rawStatus: rawStatus || 'PLANNED',
-              createdAt: row[3] ? row[3].toString() : ''
-            };
-          });
+          const range = sheet.getRange(2, 1, lastRow - 1, 9);
+          const data = range.getValues();
+          const activeIdeas = [];
+
+          for (let i = 0; i < data.length; i++) {
+            const row = data[i];
+            const isDeleted = Boolean(row[6] === true || String(row[6]).toUpperCase() === 'TRUE');
+            if (isDeleted) continue;
+
+            const id = String(row[0]);
+            const title = String(row[1] || '');
+            const description = String(row[2] || '');
+            const category = String(row[3] || 'General');
+            const priority = String(row[4] || 'MEDIUM').toUpperCase();
+            const status = String(row[5] || 'DRAFT').toUpperCase();
+            const createdAt = row[7] ? String(row[7]) : new Date().toISOString();
+            const updatedAt = row[8] ? String(row[8]) : createdAt;
+
+            activeIdeas.push({
+              id: id,
+              title: title,
+              description: description,
+              category: category,
+              priority: priority,
+              status: status,
+              is_deleted: false,
+              created_at: createdAt,
+              updated_at: updatedAt,
+              // Kompatibilitas dengan pembacaan dashboard lama
+              text: title,
+              statusLegacy: status === 'DONE' ? 'completed' : 'pending'
+            });
+          }
+          return activeIdeas;
         }
         return [];
       }
@@ -653,12 +960,29 @@ function getIdeasStorage(passedSs) {
   return getIdeasStorageFromProps();
 }
 
+function getIdeasStorage(passedSs) {
+  return fetchIdeasFromSource(passedSs);
+}
+
 function getIdeasStorageFromProps() {
   try {
     const props = PropertiesService.getScriptProperties();
-    const raw = props.getProperty('YOUTUBE_IDEAS_DATA');
+    const raw = props.getProperty('YOUTUBE_IDEAS_DATA_V2') || props.getProperty('YOUTUBE_IDEAS_DATA');
     if (raw) {
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      return parsed.filter(item => !item.is_deleted).map(item => ({
+        id: String(item.id),
+        title: item.title || item.text || '',
+        description: item.description || '',
+        category: item.category || 'General',
+        priority: item.priority || 'MEDIUM',
+        status: item.status ? item.status.toUpperCase() : 'DRAFT',
+        is_deleted: Boolean(item.is_deleted),
+        created_at: item.created_at || item.createdAt || new Date().toISOString(),
+        updated_at: item.updated_at || new Date().toISOString(),
+        text: item.title || item.text || '',
+        statusLegacy: (item.status && item.status.toUpperCase() === 'DONE') ? 'completed' : 'pending'
+      }));
     }
   } catch (err) {
     Logger.log("Error reading ideas storage properties: " + err.toString());
@@ -666,31 +990,51 @@ function getIdeasStorageFromProps() {
 
   return [
     {
-      id: '1',
+      id: 'id_demo_1',
+      title: 'Build a Telegram Mini App with Google Apps Script from scratch',
+      description: 'Tutorial arsitektur serverless Google Sheets & HMAC auth',
+      category: 'Tech',
+      priority: 'HIGH',
+      status: 'IN_PROGRESS',
+      is_deleted: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
       text: 'Build a Telegram Mini App with Google Apps Script from scratch',
-      status: 'pending',
-      createdAt: Utilities.formatDate(new Date(), "Asia/Jakarta", "dd/MM/yyyy HH:mm")
+      statusLegacy: 'pending'
     },
     {
-      id: '2',
+      id: 'id_demo_2',
+      title: 'Shorts 60s: 3 YouTube Data API v3 optimization tips in GAS',
+      description: 'Tips batch operations & CacheService',
+      category: 'Tips',
+      priority: 'MEDIUM',
+      status: 'DRAFT',
+      is_deleted: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
       text: 'Shorts 60s: 3 YouTube Data API v3 optimization tips in GAS',
-      status: 'pending',
-      createdAt: Utilities.formatDate(new Date(), "Asia/Jakarta", "dd/MM/yyyy HH:mm")
+      statusLegacy: 'pending'
     }
   ];
 }
 
 function addNewIdeaToProps(text) {
   const ideas = getIdeasStorageFromProps();
+  const now = new Date().toISOString();
   const newIdea = {
-    id: String(ideas.length + 1),
-    text: text,
-    status: 'pending',
-    createdAt: Utilities.formatDate(new Date(), "Asia/Jakarta", "dd/MM/yyyy HH:mm")
+    id: 'id_' + (ideas.length + 1) + '_' + Date.now().toString(36),
+    title: text,
+    description: '',
+    category: 'General',
+    priority: 'MEDIUM',
+    status: 'DRAFT',
+    is_deleted: false,
+    created_at: now,
+    updated_at: now
   };
   ideas.unshift(newIdea);
   try {
-    PropertiesService.getScriptProperties().setProperty('YOUTUBE_IDEAS_DATA', JSON.stringify(ideas));
+    PropertiesService.getScriptProperties().setProperty('YOUTUBE_IDEAS_DATA_V2', JSON.stringify(ideas));
   } catch (e) {
     Logger.log("Error saving ideas to props: " + e.toString());
   }
@@ -698,14 +1042,16 @@ function addNewIdeaToProps(text) {
 
 function markIdeaDoneInProps(ideaId) {
   let ideas = getIdeasStorageFromProps();
+  const now = new Date().toISOString();
   ideas = ideas.map(idea => {
     if (idea.id === ideaId || String(idea.id) === String(ideaId)) {
-      idea.status = idea.status === 'completed' ? 'pending' : 'completed';
+      idea.status = (idea.status === 'DONE') ? 'DRAFT' : 'DONE';
+      idea.updated_at = now;
     }
     return idea;
   });
   try {
-    PropertiesService.getScriptProperties().setProperty('YOUTUBE_IDEAS_DATA', JSON.stringify(ideas));
+    PropertiesService.getScriptProperties().setProperty('YOUTUBE_IDEAS_DATA_V2', JSON.stringify(ideas));
   } catch (e) {
     Logger.log("Error saving updated ideas to props: " + e.toString());
   }
