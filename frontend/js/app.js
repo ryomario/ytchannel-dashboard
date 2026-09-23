@@ -9,7 +9,9 @@ const state = {
   latestVideos: [],
   topVideos: [],
   ideas: [],
+  rawGrowthData: null,
   growthData: null,
+  growthPeriod: 'all', // 'all' | '30d' | 'this_month' | '7d'
   activeIdeaFilter: 'pending' // 'pending' | 'completed'
 };
 
@@ -197,7 +199,11 @@ function handleDashboardDataSuccess(res) {
   state.latestVideos = res.latestVideos || [];
   state.topVideos = res.topVideos || [];
   state.ideas = res.ideas || [];
-  state.growthData = res.growthData || null;
+  state.rawGrowthData = res.growthData || null;
+  state.growthData = getFilteredGrowthData(state.growthPeriod);
+
+  const periodSelect = document.getElementById('chartPeriodSelect');
+  if (periodSelect) periodSelect.value = state.growthPeriod;
 
   renderHeader();
   renderKPICards();
@@ -228,6 +234,7 @@ function showLoadingSkeletons() {
   }
 
   state.growthData = null;
+  state.rawGrowthData = null;
   if (growthChartInstance) {
     growthChartInstance.destroy();
     growthChartInstance = null;
@@ -293,6 +300,119 @@ function renderKPICards() {
   document.getElementById('kpiViews').innerText = formatCompactNumber(state.channel.viewCount || 0);
   document.getElementById('kpiVideos').innerText = formatNumberWithCommas(state.channel.videoCount || 0);
 }
+
+// ==========================================
+// GROWTH CHART FILTER & PERIOD HANDLER
+// ==========================================
+function getFilteredGrowthData(period = 'all') {
+  if (!state.rawGrowthData || !state.rawGrowthData.days || state.rawGrowthData.days.length === 0) {
+    return state.rawGrowthData;
+  }
+
+  const raw = state.rawGrowthData;
+  const total = raw.days.length;
+  if (total <= 1 || period === 'all') {
+    return raw;
+  }
+
+  let startIndex = 0;
+  const now = new Date();
+
+  if (period === '7d') {
+    startIndex = Math.max(0, total - 7);
+  } else if (period === '30d') {
+    startIndex = Math.max(0, total - 30);
+  } else if (period === 'this_month') {
+    const curYear = now.getFullYear();
+    const curMonth = now.getMonth();
+
+    let firstIdx = -1;
+    for (let i = 0; i < total; i++) {
+      let d = null;
+      if (raw.timestamps && raw.timestamps[i]) {
+        d = new Date(raw.timestamps[i]);
+      } else if (raw.isoDates && raw.isoDates[i]) {
+        d = new Date(raw.isoDates[i]);
+      } else if (raw.fullDates && raw.fullDates[i]) {
+        d = new Date(raw.fullDates[i]);
+      }
+      if (d && !isNaN(d.getTime())) {
+        if (d.getFullYear() === curYear && d.getMonth() === curMonth) {
+          firstIdx = i;
+          break;
+        }
+      }
+    }
+    if (firstIdx !== -1) {
+      startIndex = firstIdx;
+    } else {
+      startIndex = Math.max(0, total - 30);
+    }
+  }
+
+  const slicedDays = raw.days.slice(startIndex);
+  const slicedFullDates = raw.fullDates ? raw.fullDates.slice(startIndex) : [];
+  const slicedSubs = raw.subscribers ? raw.subscribers.slice(startIndex) : [];
+  const slicedViews = raw.views ? raw.views.slice(startIndex) : [];
+  const slicedSubsDiffs = raw.subsDiffs ? raw.subsDiffs.slice(startIndex) : [];
+  const slicedViewsDiffs = raw.viewsDiffs ? raw.viewsDiffs.slice(startIndex) : [];
+
+  const baseSubs = slicedSubs.length > 0 ? slicedSubs[0] : 0;
+  const baseViews = slicedViews.length > 0 ? slicedViews[0] : 0;
+
+  const subsPercentages = slicedSubs.map(s => (baseSubs > 0 ? Number((((s - baseSubs) / baseSubs) * 100).toFixed(2)) : 0));
+  const viewsPercentages = slicedViews.map(v => (baseViews > 0 ? Number((((v - baseViews) / baseViews) * 100).toFixed(2)) : 0));
+
+  const totalSubsGrowth = slicedSubs.length > 1 ? (slicedSubs[slicedSubs.length - 1] - slicedSubs[0]) : (slicedSubsDiffs[0] || 0);
+  const totalViewsGrowth = slicedViews.length > 1 ? (slicedViews[slicedViews.length - 1] - slicedViews[0]) : (slicedViewsDiffs[0] || 0);
+  const totalSubsPctGrowth = subsPercentages.length > 0 ? subsPercentages[subsPercentages.length - 1] : 0;
+  const totalViewsPctGrowth = viewsPercentages.length > 0 ? viewsPercentages[viewsPercentages.length - 1] : 0;
+
+  return {
+    days: slicedDays,
+    fullDates: slicedFullDates,
+    subscribers: slicedSubs,
+    views: slicedViews,
+    subsPercentages: subsPercentages,
+    viewsPercentages: viewsPercentages,
+    subsDiffs: slicedSubsDiffs,
+    viewsDiffs: slicedViewsDiffs,
+    subsGrowth: totalSubsGrowth,
+    viewsGrowth: totalViewsGrowth,
+    totalSubsPctGrowth: totalSubsPctGrowth,
+    totalViewsPctGrowth: totalViewsPctGrowth,
+    totalRecords: slicedDays.length
+  };
+}
+
+function handlePeriodChange(newPeriod) {
+  state.growthPeriod = newPeriod;
+  if (!state.rawGrowthData) return;
+
+  if (growthAnimationTimer) {
+    clearInterval(growthAnimationTimer);
+    growthAnimationTimer = null;
+  }
+
+  const chartSkeleton = document.getElementById('chartSkeleton');
+  const chartCanvas = document.getElementById('growthChart');
+
+  if (chartSkeleton && chartCanvas) {
+    chartSkeleton.classList.add('active');
+    chartCanvas.style.display = 'none';
+
+    setTimeout(() => {
+      chartSkeleton.classList.remove('active');
+      chartCanvas.style.display = 'block';
+      state.growthData = getFilteredGrowthData(newPeriod);
+      renderGrowthChart();
+    }, 220);
+  } else {
+    state.growthData = getFilteredGrowthData(newPeriod);
+    renderGrowthChart();
+  }
+}
+window.handlePeriodChange = handlePeriodChange;
 
 function renderGrowthChart() {
   const chartCanvas = document.getElementById('growthChart');
@@ -364,8 +484,9 @@ function renderGrowthChart() {
           pointBackgroundColor: '#ff4444',
           pointBorderColor: '#ffffff',
           pointBorderWidth: 1.5,
-          pointRadius: totalPoints > 30 ? 2 : 3.5,
-          pointHoverRadius: 6
+          pointRadius: 0,
+          pointHoverRadius: 6,
+          pointHitRadius: 12
         },
         {
           label: 'Views',
@@ -378,8 +499,9 @@ function renderGrowthChart() {
           pointBackgroundColor: '#2aabee',
           pointBorderColor: '#ffffff',
           pointBorderWidth: 1.5,
-          pointRadius: totalPoints > 30 ? 2 : 3.5,
-          pointHoverRadius: 6
+          pointRadius: 0,
+          pointHoverRadius: 6,
+          pointHitRadius: 12
         }
       ]
     },

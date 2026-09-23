@@ -17,19 +17,13 @@ function verifyTelegramWebhook(e) {
 
   // Jika properti TELEGRAM_SECRET_HEADER disetel, validasi wajib lolos
   if (requiredSecret && requiredSecret.trim() !== '') {
-    const headers = (e && e.headers) ? e.headers : {};
-    let incomingSecret = '';
-
-    // Cek header secara case-insensitive
-    for (const key in headers) {
-      if (key.toLowerCase() === 'x-telegram-bot-api-secret-token') {
-        incomingSecret = headers[key];
-        break;
-      }
-    }
+    const incomingSecret = (e && e.parameter && e.parameter.secret) ? e.parameter.secret : '';
 
     if (!incomingSecret || incomingSecret !== requiredSecret) {
-      Logger.log('Telegram webhook rejected: invalid or missing secret token header.');
+      let msg = 'Telegram webhook rejected: ';
+      if(!incomingSecret) msg += 'missing';
+      else if(incomingSecret !== requiredSecret) msg += 'invalid';
+      Logger.log(msg + ' secret token header.');
       return { valid: false, error: 'Forbidden: Invalid Telegram secret header' };
     }
   }

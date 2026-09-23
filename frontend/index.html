@@ -107,7 +107,17 @@
           </svg>
           Channel Growth
         </h2>
-        <span class="chart-period-badge">All-Time Growth</span>
+        <div class="chart-period-wrapper">
+          <select id="chartPeriodSelect" class="chart-period-select" onchange="handlePeriodChange(this.value)" aria-label="Pilih Rentang Waktu">
+            <option value="all" selected>Semua Waktu</option>
+            <option value="30d">30 Hari Terakhir</option>
+            <option value="this_month">Bulan Ini</option>
+            <option value="7d">7 Hari Terakhir</option>
+          </select>
+          <svg class="chart-period-icon" viewBox="0 0 24 24">
+            <path d="M7 10l5 5 5-5z" fill="currentColor" />
+          </svg>
+        </div>
       </div>
 
       <div class="growth-chart-card">
@@ -127,15 +137,56 @@
         </div>
 
         <div class="chart-canvas-wrapper">
-          <div id="chartSkeleton" class="chart-skeleton skeleton active">
-            <div class="chart-skeleton-bars">
-              <div class="chart-sk-col" style="height: 35%;"></div>
-              <div class="chart-sk-col" style="height: 55%;"></div>
-              <div class="chart-sk-col" style="height: 40%;"></div>
-              <div class="chart-sk-col" style="height: 75%;"></div>
-              <div class="chart-sk-col" style="height: 60%;"></div>
-              <div class="chart-sk-col" style="height: 85%;"></div>
-              <div class="chart-sk-col" style="height: 95%;"></div>
+          <div id="chartSkeleton" class="chart-skeleton active">
+            <div class="chart-sk-line-wrapper">
+              <svg class="chart-sk-svg" viewBox="0 0 500 200" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="skSubsGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="rgba(255, 68, 68, 0.28)" />
+                    <stop offset="100%" stop-color="rgba(255, 68, 68, 0.0)" />
+                  </linearGradient>
+                  <linearGradient id="skViewsGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="rgba(42, 171, 238, 0.28)" />
+                    <stop offset="100%" stop-color="rgba(42, 171, 238, 0.0)" />
+                  </linearGradient>
+                  <linearGradient id="skShimmer" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stop-color="rgba(255, 255, 255, 0.01)">
+                      <animate attributeName="offset" values="-1; 1" dur="1.8s" repeatCount="indefinite" />
+                    </stop>
+                    <stop offset="50%" stop-color="rgba(255, 255, 255, 0.12)">
+                      <animate attributeName="offset" values="-0.5; 1.5" dur="1.8s" repeatCount="indefinite" />
+                    </stop>
+                    <stop offset="100%" stop-color="rgba(255, 255, 255, 0.01)">
+                      <animate attributeName="offset" values="0; 2" dur="1.8s" repeatCount="indefinite" />
+                    </stop>
+                  </linearGradient>
+                </defs>
+
+                <!-- Horizontal grid lines -->
+                <line x1="0" y1="35" x2="500" y2="35" stroke="rgba(255, 255, 255, 0.05)" stroke-dasharray="4 4" />
+                <line x1="0" y1="85" x2="500" y2="85" stroke="rgba(255, 255, 255, 0.05)" stroke-dasharray="4 4" />
+                <line x1="0" y1="135" x2="500" y2="135" stroke="rgba(255, 255, 255, 0.05)" stroke-dasharray="4 4" />
+                <line x1="0" y1="182" x2="500" y2="182" stroke="rgba(255, 255, 255, 0.08)" />
+
+                <!-- Views Area & Line -->
+                <path d="M 0,160 Q 70,150 140,130 T 280,105 T 420,70 L 500,55 L 500,182 L 0,182 Z" fill="url(#skViewsGrad)" />
+                <path d="M 0,160 Q 70,150 140,130 T 280,105 T 420,70 L 500,55" fill="none" stroke="rgba(42, 171, 238, 0.5)" stroke-width="2.5" stroke-linecap="round" class="chart-sk-pulse-line" />
+
+                <!-- Subs Area & Line -->
+                <path d="M 0,175 Q 80,165 160,140 T 320,95 T 440,50 L 500,35 L 500,182 L 0,182 Z" fill="url(#skSubsGrad)" />
+                <path d="M 0,175 Q 80,165 160,140 T 320,95 T 440,50 L 500,35" fill="none" stroke="rgba(255, 68, 68, 0.55)" stroke-width="2.5" stroke-linecap="round" class="chart-sk-pulse-line" />
+
+                <!-- Shimmer Overlay -->
+                <rect x="0" y="0" width="500" height="182" fill="url(#skShimmer)" />
+              </svg>
+              <!-- X Axis Skeleton Ticks -->
+              <div class="chart-sk-xaxis">
+                <span class="chart-sk-tick skeleton"></span>
+                <span class="chart-sk-tick skeleton"></span>
+                <span class="chart-sk-tick skeleton"></span>
+                <span class="chart-sk-tick skeleton"></span>
+                <span class="chart-sk-tick skeleton"></span>
+              </div>
             </div>
           </div>
           <canvas id="growthChart"></canvas>

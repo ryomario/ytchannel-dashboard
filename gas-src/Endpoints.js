@@ -481,6 +481,8 @@ function getGrowthAnalyticsData(passedSs, currentSubs, currentViews) {
           const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
           const days = [];
           const fullDates = [];
+          const isoDates = [];
+          const timestamps = [];
           const subs = [];
           const views = [];
           const subsDiffs = [];
@@ -490,23 +492,31 @@ function getGrowthAnalyticsData(passedSs, currentSubs, currentViews) {
             const rawDate = row[0];
             let dayLabel = "";
             let fullDateStr = "";
+            let isoDateStr = "";
+            let ts = 0;
             try {
               const d = new Date(rawDate);
               if (!isNaN(d.getTime())) {
+                ts = d.getTime();
                 dayLabel = numRows <= 7
                   ? dayNames[d.getDay()]
                   : (d.getDate() + ' ' + monthNames[d.getMonth()]);
                 fullDateStr = Utilities.formatDate(d, "Asia/Jakarta", "dd MMM yyyy");
+                isoDateStr = Utilities.formatDate(d, "Asia/Jakarta", "yyyy-MM-dd");
               } else {
                 dayLabel = String(rawDate);
                 fullDateStr = String(rawDate);
+                isoDateStr = String(rawDate);
               }
             } catch (e) {
               dayLabel = String(rawDate);
               fullDateStr = String(rawDate);
+              isoDateStr = String(rawDate);
             }
             days.push(dayLabel);
             fullDates.push(fullDateStr);
+            isoDates.push(isoDateStr);
+            timestamps.push(ts);
             subs.push(Number(row[1]) || 0);
             views.push(Number(row[2]) || 0);
             subsDiffs.push(Number(row[4]) || 0);
@@ -526,6 +536,8 @@ function getGrowthAnalyticsData(passedSs, currentSubs, currentViews) {
           return {
             days: days,
             fullDates: fullDates,
+            isoDates: isoDates,
+            timestamps: timestamps,
             subscribers: subs,
             views: views,
             subsPercentages: subsPct,
@@ -554,6 +566,8 @@ function getFallbackGrowthData(currentSubs, currentViews) {
   const totalDays = 14;
   const days = [];
   const fullDates = [];
+  const isoDates = [];
+  const timestamps = [];
   const subs = [];
   const views = [];
   const subsDiffs = [12, 18, 15, 22, 28, 20, 35, 24, 30, 26, 32, 28, 38, 42];
@@ -572,6 +586,8 @@ function getFallbackGrowthData(currentSubs, currentViews) {
     const d = new Date(now.getTime() - i * 86400000);
     days.push(d.getDate() + ' ' + monthNames[d.getMonth()]);
     fullDates.push(Utilities.formatDate(d, "Asia/Jakarta", "dd MMM yyyy"));
+    isoDates.push(Utilities.formatDate(d, "Asia/Jakarta", "yyyy-MM-dd"));
+    timestamps.push(d.getTime());
     const idx = (totalDays - 1) - i;
     runningSubs += subsDiffs[idx];
     runningViews += viewsDiffs[idx];
@@ -587,6 +603,8 @@ function getFallbackGrowthData(currentSubs, currentViews) {
   return {
     days: days,
     fullDates: fullDates,
+    isoDates: isoDates,
+    timestamps: timestamps,
     subscribers: subs,
     views: views,
     subsPercentages: subsPct,
