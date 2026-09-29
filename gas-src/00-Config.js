@@ -8,14 +8,51 @@
 
 var _cachedConfig = null;
 
+function getRequiredScriptProperty(props,props, name) {
+  const value = String(props[name] || '').trim();
+  if (!value) {
+    throw new Error('Missing required Script Property: ' + name + '. Set it in Project Settings -> Script Properties.');
+  }
+  return value;
+}
+
+function getOptionalScriptProperty(props,props, name, fallback) {
+  const rawValue = props[name];
+  if (rawValue === null || rawValue === undefined || String(rawValue).trim() === '') {
+    return fallback;
+  }
+  return String(rawValue).trim();
+}
+
 /**
- * Mengambil seluruh konfigurasi aktif dari Script Properties
- * dengan fallback default jika property belum disetel.
+ * Mengambil seluruh konfigurasi aktif dari Script Properties.
+ * Fail closed: jika properti penting tidak ada, throw error supaya tidak berjalan dengan secret default.
  * @param {boolean} [forceReload=false] - Jika true, paksa baca ulang dari Script Properties
  */
 function getConfig(forceReload = false) {
   if (_cachedConfig && !forceReload) return _cachedConfig;
   const props = PropertiesService.getScriptProperties().getProperties();
+
+  const requiredKeys = [
+    'APP_SHARED_SECRET',
+    'YOUTUBE_CHANNEL_ID',
+    'TELEGRAM_TOKEN',
+    'TELEGRAM_CHAT_ID',
+    'SPREADSHEET_ID'
+  ];
+
+  const missingKeys = [];
+  requiredKeys.forEach(function(key) {
+    if (!String(props[key] || '').trim()) {
+      missingKeys.push(key);
+    }
+  });
+
+  if (missingKeys.length > 0) {
+    const errorMessage = 'Missing required Script Properties: ' + missingKeys.join(', ');
+    Logger.log(errorMessage);
+    throw new Error(errorMessage);
+  }
 
   let topics = {
     GENERAL: 1,
@@ -28,35 +65,27 @@ function getConfig(forceReload = false) {
     try {
       topics = JSON.parse(props.TELEGRAM_TOPICS_JSON);
     } catch (e) {
-      Logger.log("Error parsing TELEGRAM_TOPICS_JSON: " + e.message);
+      Logger.log('Error parsing TELEGRAM_TOPICS_JSON: ' + e.message);
     }
   }
 
-  // Parse admin IDs array
   const adminIds = (props.TELEGRAM_ADMIN_IDS || props.TELEGRAM_CHAT_ID || '')
     .split(',')
-    .map(id => id.trim())
+    .map(function(id) { return String(id).trim(); })
     .filter(Boolean);
 
   _cachedConfig = {
-    // Secret & Security
-    APP_SHARED_SECRET: props.APP_SHARED_SECRET || 'secret_youtube_gas_key_2026',
-    TELEGRAM_SECRET_HEADER: props.TELEGRAM_SECRET_HEADER || '',
+    APP_SHARED_SECRET: getRequiredScriptProperty(props,'APP_SHARED_SECRET'),
+    TELEGRAM_SECRET_HEADER: getOptionalScriptProperty(props,'TELEGRAM_SECRET_HEADER', ''),
     TELEGRAM_ADMIN_IDS: adminIds,
-
-    // YouTube Configuration
-    YOUTUBE_CHANNEL_ID: props.YOUTUBE_CHANNEL_ID || '',
-
-    // Telegram Configuration
-    TELEGRAM_TOKEN: props.TELEGRAM_TOKEN || '',
-    TELEGRAM_CHAT_ID: props.TELEGRAM_CHAT_ID || '',
-    TELEGRAM_GROUP_CHAT_ID: props.TELEGRAM_GROUP_CHAT_ID || '',
+    YOUTUBE_CHANNEL_ID: getRequiredScriptProperty(props,'YOUTUBE_CHANNEL_ID'),
+    TELEGRAM_TOKEN: getRequiredScriptProperty(props,'TELEGRAM_TOKEN'),
+    TELEGRAM_CHAT_ID: getRequiredScriptProperty(props,'TELEGRAM_CHAT_ID'),
+    TELEGRAM_GROUP_CHAT_ID: getOptionalScriptProperty(props,'TELEGRAM_GROUP_CHAT_ID', ''),
     TELEGRAM_GROUP_CHAT_TOPICS: topics,
-
-    // Database / Google Sheets
-    SPREADSHEET_ID: props.SPREADSHEET_ID || '',
-    ANALYTICS_SHEET_NAME: props.ANALYTICS_SHEET_NAME || 'Data',
-    IDEAS_SHEET_NAME: props.IDEAS_SHEET_NAME || 'Ideas',
+    SPREADSHEET_ID: getRequiredScriptProperty(props,'SPREADSHEET_ID'),
+    ANALYTICS_SHEET_NAME: getOptionalScriptProperty(props,'ANALYTICS_SHEET_NAME', 'Data'),
+    IDEAS_SHEET_NAME: getOptionalScriptProperty(props,'IDEAS_SHEET_NAME', 'Ideas')
   };
 
   return _cachedConfig;
@@ -87,27 +116,26 @@ var CONFIG = {
  */
 function setupInitialScriptProperties() {
   const initialProps = {
-    APP_SHARED_SECRET: 'secret_youtube_gas_key_2026',
-    TELEGRAM_SECRET_HEADER: 'my_telegram_webhook_secret_2026',
-    TELEGRAM_ADMIN_IDS: '6685473611',
-    YOUTUBE_CHANNEL_ID: 'UCfbflcRHrer8gyyQQpkhFww',
-    TELEGRAM_TOKEN: '8844130917:AAGfJ9JHXe5-kbfsewZndjtQ5v77zGOVAsY',
-    TELEGRAM_CHAT_ID: '6685473611',
-    TELEGRAM_GROUP_CHAT_ID: '-1004387588160',
+    APP_SHARED_SECRET: '',
+    TELEGRAM_SECRET_HEADER: '',
+    TELEGRAM_ADMIN_IDS: '',
+    YOUTUBE_CHANNEL_ID: '',
+    TELEGRAM_TOKEN: '',
+    TELEGRAM_CHAT_ID: '',
+    TELEGRAM_GROUP_CHAT_ID: '',
     TELEGRAM_TOPICS_JSON: JSON.stringify({
       GENERAL: 1,
       NOTIF: 22,
       IDEAS: 26,
       REPORTS: 32
     }),
-    SPREADSHEET_ID: '18z3nWha6AlPZj0rfuB98yZvoHC9uNOwuwjVnJDJpe1k',
+    SPREADSHEET_ID: '',
     ANALYTICS_SHEET_NAME: 'Data',
     IDEAS_SHEET_NAME: 'Ideas'
   };
 
   PropertiesService.getScriptProperties().setProperties(initialProps, false);
-  Logger.log('✅ Script Properties berhasil diinisialisasi:');
-  Logger.log(PropertiesService.getScriptProperties().getProperties());
+  Logger.log('Script Properties initialized with empty values. Set real credentials in Project Settings -> Script Properties.');
   clearAllAppCache();
 }
 
@@ -119,11 +147,13 @@ function setupInitialScriptProperties() {
  */
 function clearAllAppCache() {
   _cachedConfig = null;
-  const config = getConfig(true);
+  const props = PropertiesService.getScriptProperties().getProperties();
+  const channelId = props.YOUTUBE_CHANNEL_ID || 'default';
+
   try {
     const cache = CacheService.getScriptCache();
-    cache.remove('DASH_DATA_' + (config.YOUTUBE_CHANNEL_ID || 'default'));
-    cache.remove('TOP_VIDS_' + (config.YOUTUBE_CHANNEL_ID || 'default'));
+    cache.remove('DASH_DATA_' + channelId);
+    cache.remove('TOP_VIDS_' + channelId);
     Logger.log('✅ Seluruh cache aplikasi (DASH_DATA & TOP_VIDS) berhasil dibersihkan!');
   } catch (e) {
     Logger.log('Error clearAllAppCache: ' + e.message);

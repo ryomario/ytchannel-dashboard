@@ -50,7 +50,7 @@ function verifyFrontendAuth(body) {
     const expectedSignature = computeHmacSha256Hex(messageToSign, sharedSecret);
 
     if (expectedSignature.toLowerCase() !== signature) {
-      Logger.log(`Auth failed: Signature mismatch. Expected: ${expectedSignature}, Received: ${signature}`);
+      Logger.log('Auth failed: Signature mismatch for action=' + action + ', timestamp=' + timestamp);
       return { authorized: false, error: 'Unauthorized: Invalid signature' };
     }
 
