@@ -15,18 +15,29 @@
  */
 function notifIdea(id, ideaText, state) {
   try {
-    let header = `💡 *[ BARU DITAMBAHKAN ]*\n`;
-    if (state == 'DONE') header = `🎉 *[ BARU DISELESAIKAN ]*\n`;
-    sendTelegram((
-      header +
-      `🗓 ${getTimeString()}\n` +
-      `----------------------------------------\n\n` +
-      `💡 *Ide Konten (ID: #${id}):*\n` +
-      `"${escapeMarkdown(ideaText)}"\n\n` +
-      `----------------------------------------\n` +
-      `🟢 *Status:* Tersimpan di Backlog (${state})`
-    ), CONFIG.TELEGRAM_GROUP_CHAT_ID, CONFIG.TELEGRAM_GROUP_CHAT_TOPICS.IDEAS);
+    const normalizedState = String(state || 'PLANNED');
+    const type = normalizedState === 'DONE' ? 'success' : 'info';
+    const title = normalizedState === 'DONE' ? 'Idea Completed' : 'New Idea Added';
+    const summary = '💡 *Ide Konten (ID: #' + String(id) + '):*';
+    const body = [
+      summary,
+      '"' + escapeMarkdown(String(ideaText || '')) + '"',
+      '',
+      '🟢 *Status:* Tersimpan di Backlog (' + normalizedState + ')'
+    ];
+
+    sendTelegram(buildTelegramMessage({
+      type: type,
+      title: title,
+      summary: summary,
+      lines: body.slice(1),
+      footer: '🟢 *Status:* Tersimpan di Backlog (' + normalizedState + ')'
+    }), CONFIG.TELEGRAM_GROUP_CHAT_ID, CONFIG.TELEGRAM_GROUP_CHAT_TOPICS.IDEAS);
   } catch (e) {
-    Logger.log(`Error kirim notif Idea: ${id} - ${ideaText} (${state})`);
+    logAppEvent('error', 'telegram', 'Failed to send idea notification', {
+      ideaId: id,
+      state: state,
+      error: e.message
+    });
   }
 }

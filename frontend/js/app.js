@@ -119,7 +119,7 @@ async function processPasswordSubmit() {
 
   if (!val) {
     if (errorEl) {
-      errorEl.textContent = 'Silakan masukkan kata sandi rahasia.';
+      errorEl.textContent = 'Please enter the secret password.';
       errorEl.style.display = 'block';
     }
     return;
@@ -128,7 +128,7 @@ async function processPasswordSubmit() {
   if (errorEl) errorEl.style.display = 'none';
   if (btn) {
     btn.disabled = true;
-    btn.innerHTML = '<span class="btn-spinner"></span> Memverifikasi...';
+    btn.innerHTML = '<span class="btn-spinner"></span> Verifying...';
   }
 
   setAuthToken(val);
@@ -139,11 +139,11 @@ async function processPasswordSubmit() {
       hidePasswordModal();
       hideUnauthorizedScreen();
       handleDashboardDataSuccess(res);
-      showToast("Berhasil terautentikasi!", "success");
+      showToast("Authentication successful!", "success");
     } else {
       clearAuthToken();
       if (errorEl) {
-        errorEl.textContent = (res && res.error) ? res.error : 'Kunci rahasia salah. Silakan coba lagi.';
+        errorEl.textContent = (res && res.error) ? res.error : 'Incorrect secret key. Please try again.';
         errorEl.style.display = 'block';
       }
       if (input) input.select();
@@ -151,14 +151,14 @@ async function processPasswordSubmit() {
   } catch (err) {
     clearAuthToken();
     if (errorEl) {
-      errorEl.textContent = 'Autentikasi gagal: ' + (err.message || 'Kunci rahasia salah.');
+      errorEl.textContent = 'Authentication failed: ' + (err.message || 'Incorrect secret key.');
       errorEl.style.display = 'block';
     }
     if (input) input.select();
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.innerHTML = 'Masuk ke Dashboard';
+      btn.innerHTML = 'Access Dashboard';
     }
   }
 }
@@ -183,7 +183,7 @@ function switchTab(tabName) {
 
   if (tabName === 'ideas') {
     if (typeof TMAHelper !== 'undefined') {
-      TMAHelper.showMainButton("+ Tambah Ide Baru", openCreateIdeaModal);
+      TMAHelper.showMainButton("+ Add New Idea", openCreateIdeaModal);
     }
   } else {
     if (typeof TMAHelper !== 'undefined') {
@@ -216,7 +216,7 @@ function handleDashboardDataSuccess(res) {
 
   if (!res || !res.success) {
     console.error("Dashboard API Error:", res ? res.error : "Unknown error");
-    showToast(res && res.error ? res.error : "Gagal memuat data", "error");
+    showToast(res && res.error ? res.error : "Failed to load data", "error");
     return;
   }
 
@@ -241,7 +241,7 @@ function handleDashboardDataError(err) {
   console.error("Failed to fetch dashboard data:", err);
   const btnRefresh = document.getElementById('btnRefresh');
   if (btnRefresh) btnRefresh.classList.remove('spinning');
-  showToast(err.message || "Gagal menghubungi server", "error");
+  showToast(err.message || "Failed to connect to server", "error");
 }
 
 function showLoadingSkeletons() {
@@ -647,7 +647,7 @@ function renderVideoLists() {
   // Tab 1: Latest Uploads
   if (dashListEl) {
     if (!state.latestVideos || state.latestVideos.length === 0) {
-      dashListEl.innerHTML = `<div class="empty-state"><p>Belum ada video yang diupload.</p></div>`;
+      dashListEl.innerHTML = `<div class="empty-state"><p>No videos have been uploaded yet.</p></div>`;
     } else {
       dashListEl.innerHTML = state.latestVideos.map(video => buildVideoCardHtml(video)).join('');
     }
@@ -662,7 +662,7 @@ function renderVideoLists() {
     topVids = topVids.slice(0, 5);
 
     if (topVids.length === 0) {
-      fullListEl.innerHTML = `<div class="empty-state"><p>Tidak ada data video.</p></div>`;
+      fullListEl.innerHTML = `<div class="empty-state"><p>No video data available.</p></div>`;
     } else {
       fullListEl.innerHTML = topVids.map((video, idx) => buildVideoCardHtml(video, idx + 1)).join('');
     }
@@ -830,11 +830,11 @@ function renderIdeas() {
   }
 
   if (displayList.length === 0) {
-    let emptyMessage = "Belum ada ide yang sesuai dengan filter.";
+    let emptyMessage = "There are no ideas matching the current filter.";
     if (state.ideaSearchQuery) {
-      emptyMessage = `Tidak ada ide yang cocok dengan pencarian "${escapeHtml(state.ideaSearchQuery)}".`;
+      emptyMessage = `No ideas match the search "${escapeHtml(state.ideaSearchQuery)}".`;
     } else if (state.activeIdeaStatusFilter === 'ALL' && countAll === 0) {
-      emptyMessage = "Belum ada ide konten tersimpan. Klik '+ Ide Baru' untuk mulai mencatat!";
+      emptyMessage = "No content ideas saved yet. Click '+ New Idea' to start capturing ideas!";
     }
 
     container.innerHTML = `
@@ -860,17 +860,17 @@ function renderIdeas() {
     return `
       <div class="idea-card ${isDone ? 'completed' : ''}" id="card_${idea.id}">
         <div class="idea-card-header">
-          <button class="idea-checkbox-btn ${isDone ? 'checked' : ''}" title="Klik untuk toggle status" onclick="toggleIdeaStatus('${idea.id}')">
+          <button class="idea-checkbox-btn ${isDone ? 'checked' : ''}" title="Click to toggle status" onclick="toggleIdeaStatus('${idea.id}')">
             <svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
           </button>
           <div class="idea-title-wrap">
             <h4 class="idea-card-title">${escapeHtml(idea.title)}</h4>
           </div>
           <div class="idea-card-actions">
-            <button class="btn-card-action btn-edit" title="Edit Ide" onclick="openEditIdeaModal('${idea.id}')">
+            <button class="btn-card-action btn-edit" title="Edit Idea" onclick="openEditIdeaModal('${idea.id}')">
               <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
             </button>
-            <button class="btn-card-action btn-delete" title="Hapus Ide" onclick="promptDeleteIdea('${idea.id}')">
+            <button class="btn-card-action btn-delete" title="Delete Idea" onclick="promptDeleteIdea('${idea.id}')">
               <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
             </button>
           </div>
@@ -902,7 +902,7 @@ function openCreateIdeaModal() {
     TMAHelper.hideMainButton();
   }
 
-  document.getElementById('ideaModalTitle').innerText = 'Tambah Ide Baru';
+  document.getElementById('ideaModalTitle').innerText = 'Add New Idea';
   document.getElementById('ideaFormId').value = '';
   document.getElementById('ideaFormTitle').value = '';
   document.getElementById('ideaFormDesc').value = '';
@@ -934,7 +934,7 @@ function openEditIdeaModal(ideaId) {
     TMAHelper.hideMainButton();
   }
 
-  document.getElementById('ideaModalTitle').innerText = 'Edit Ide Konten';
+  document.getElementById('ideaModalTitle').innerText = 'Edit Content Idea';
   document.getElementById('ideaFormId').value = idea.id;
   document.getElementById('ideaFormTitle').value = idea.title || '';
   document.getElementById('ideaFormDesc').value = idea.description || '';
@@ -959,7 +959,7 @@ function closeIdeaModal() {
     TMAHelper.hideBackButton();
     const activeNav = document.querySelector('.nav-item.active');
     if (activeNav && activeNav.id === 'nav-ideas') {
-      TMAHelper.showMainButton("+ Tambah Ide Baru", openCreateIdeaModal);
+      TMAHelper.showMainButton("+ Add New Idea", openCreateIdeaModal);
     }
   }
 }
@@ -989,7 +989,7 @@ async function submitIdeaForm() {
 
   if (!title) {
     if (errorEl) {
-      errorEl.innerText = 'Judul ide wajib diisi.';
+      errorEl.innerText = 'Idea title is required.';
       errorEl.style.display = 'block';
     }
     if (typeof TMAHelper !== 'undefined') {
@@ -1025,7 +1025,7 @@ async function submitIdeaForm() {
     if (typeof TMAHelper !== 'undefined') {
       TMAHelper.triggerHaptic('notification', 'success');
     }
-    showToast("Ide baru berhasil ditambahkan!", "success");
+    showToast("New idea added successfully!", "success");
 
     try {
       const res = await callApi('createIdea', {
@@ -1046,7 +1046,7 @@ async function submitIdeaForm() {
       // Rollback
       state.ideas = previousSnapshot;
       renderIdeas();
-      showToast("Gagal menyimpan ide: " + err.message, "error");
+      showToast("Failed to save idea: " + err.message, "error");
       if (typeof TMAHelper !== 'undefined') {
         TMAHelper.triggerHaptic('notification', 'error');
       }
@@ -1075,7 +1075,7 @@ async function submitIdeaForm() {
     if (typeof TMAHelper !== 'undefined') {
       TMAHelper.triggerHaptic('notification', 'success');
     }
-    showToast("Perubahan ide berhasil disimpan!", "success");
+    showToast("Idea changes saved successfully!", "success");
 
     try {
       await callApi('updateIdea', {
@@ -1091,7 +1091,7 @@ async function submitIdeaForm() {
       // Rollback
       state.ideas = previousSnapshot;
       renderIdeas();
-      showToast("Gagal memperbarui ide: " + err.message, "error");
+      showToast("Failed to update idea: " + err.message, "error");
       if (typeof TMAHelper !== 'undefined') {
         TMAHelper.triggerHaptic('notification', 'error');
       }
@@ -1131,7 +1131,7 @@ async function toggleIdeaStatus(ideaId) {
     console.error("Failed to toggle idea status on server:", err);
     state.ideas = previousSnapshot;
     renderIdeas();
-    showToast("Gagal memperbarui status: " + err.message, "error");
+    showToast("Failed to update status: " + err.message, "error");
   }
 }
 
@@ -1142,9 +1142,9 @@ async function toggleIdeaStatus(ideaId) {
 async function promptDeleteIdea(ideaId) {
   let confirmed = false;
   if (typeof TMAHelper !== 'undefined') {
-    confirmed = await TMAHelper.confirm("Apakah Anda yakin ingin menghapus ide ini?");
+    confirmed = await TMAHelper.confirm("Are you sure you want to delete this idea?");
   } else {
-    confirmed = window.confirm("Apakah Anda yakin ingin menghapus ide ini?");
+    confirmed = window.confirm("Are you sure you want to delete this idea?");
   }
 
   if (!confirmed) return;
@@ -1211,7 +1211,7 @@ function executeUndoDelete() {
   if (typeof TMAHelper !== 'undefined') {
     TMAHelper.triggerHaptic('notification', 'success');
   }
-  showToast("Penghapusan ide dibatalkan.", "info");
+  showToast("Idea deletion canceled.", "info");
 }
 
 async function finalizeDelete(ideaId) {
@@ -1231,13 +1231,13 @@ async function finalizeDelete(ideaId) {
       renderIdeas();
     }
   } catch (err) {
-    console.error("Gagal menghapus ide dari server:", err);
+    console.error("Failed to delete idea from server:", err);
     const idea = state.ideas.find(i => String(i.id) === String(ideaId));
     if (idea) {
       idea.is_deleted = false;
       renderIdeas();
     }
-    showToast("Gagal menghapus ide: " + err.message, "error");
+    showToast("Failed to delete idea: " + err.message, "error");
   }
 }
 
@@ -1274,7 +1274,7 @@ async function executeSearch() {
     }
   } catch (err) {
     renderSearchResults([]);
-    showToast("Pencarian gagal: " + err.message, "error");
+    showToast("Search failed: " + err.message, "error");
   }
 }
 
@@ -1286,7 +1286,7 @@ function renderSearchResults(videos) {
     container.innerHTML = `
       <div class="empty-state">
         <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
-        <p>Tidak ada video yang cocok dengan pencarian.</p>
+        <p>No videos match the search.</p>
       </div>
     `;
     return;
@@ -1341,24 +1341,24 @@ function getTimeElapsed(dateInput) {
   const now = Date.now();
   const elapsedSeconds = Math.max(0, Math.floor((now - past) / 1000));
 
-  if (elapsedSeconds < 30) return 'Baru saja';
+  if (elapsedSeconds < 30) return 'Just now';
 
   const units = [
-    { name: 'thn', seconds: 31536000 },
-    { name: 'bln', seconds: 2592000 },
-    { name: 'mgg', seconds: 604800 },
-    { name: 'hr', seconds: 86400 },
-    { name: 'jam', seconds: 3600 },
-    { name: 'mnt', seconds: 60 }
+    { name: 'yr', seconds: 31536000 },
+    { name: 'mo', seconds: 2592000 },
+    { name: 'wk', seconds: 604800 },
+    { name: 'd', seconds: 86400 },
+    { name: 'hr', seconds: 3600 },
+    { name: 'min', seconds: 60 }
   ];
 
   for (const unit of units) {
     const interval = Math.floor(elapsedSeconds / unit.seconds);
     if (interval >= 1) {
-      return `${interval} ${unit.name} lalu`;
+      return `${interval} ${unit.name} ago`;
     }
   }
-  return 'Baru saja';
+  return 'Just now';
 }
 
 function escapeHtml(str) {

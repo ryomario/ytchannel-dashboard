@@ -97,7 +97,7 @@ function hidePasswordModal() {
 /**
  * Menampilkan layar Unauthorized (Akses Ditolak)
  */
-function showUnauthorizedScreen(message = 'Token autentikasi tidak valid atau sudah kedaluwarsa.') {
+function showUnauthorizedScreen(message = 'Authentication token is invalid or has expired.') {
   clearAuthToken();
   const screen = document.getElementById('unauthorizedScreen');
   const descEl = document.getElementById('unauthorizedDesc');
@@ -148,7 +148,7 @@ function initAuth(onTokenReady) {
     return;
   }
 
-  // 3. Tampilkan modal input kata sandi
+  // 3. Show password modal
   showPasswordModal();
 }
 
@@ -163,7 +163,7 @@ function handlePasswordSubmit(onTokenSubmitted) {
   if (!val) {
     const errorEl = document.getElementById('modalError');
     if (errorEl) {
-      errorEl.textContent = 'Silakan masukkan kata sandi rahasia.';
+      errorEl.textContent = 'Please enter the secret password.';
       errorEl.style.display = 'block';
     }
     return;

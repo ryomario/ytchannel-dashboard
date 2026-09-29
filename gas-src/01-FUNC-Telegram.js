@@ -23,8 +23,26 @@ function sendTelegram(message, chatId = null, threadId = null) {
   }
   try {
     const response = UrlFetchApp.fetch(url, options);
-    Logger.log("Telegram response: " + response.getContentText());
+    let responseText = '';
+    try {
+      responseText = response.getContentText() || '';
+    } catch (contentErr) {
+      responseText = '[content-unavailable]';
+    }
+
+    let parsed = null;
+    try {
+      parsed = responseText ? JSON.parse(responseText) : null;
+    } catch (parseErr) {
+      parsed = null;
+    }
+
+    logAppEvent('info', 'telegram', 'Telegram message delivery result', {
+      statusCode: response.getResponseCode(),
+      ok: !!(parsed && parsed.ok),
+      description: parsed && parsed.description ? String(parsed.description).slice(0, 120) : 'n/a'
+    });
   } catch (e) {
-    Logger.log("Error kirim Telegram: " + e.message);
+    logAppEvent('error', 'telegram', 'Failed to send Telegram message', { error: e.message });
   }
 }
