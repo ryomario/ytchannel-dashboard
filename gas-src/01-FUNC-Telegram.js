@@ -37,12 +37,12 @@ function sendTelegram(message, chatId = null, threadId = null) {
       parsed = null;
     }
 
-    Logger.log(
-      'Telegram sendMessage result: status=' + response.getResponseCode() +
-      ', ok=' + (parsed && parsed.ok ? 'true' : 'false') +
-      ', description=' + (parsed && parsed.description ? String(parsed.description).slice(0, 120) : 'n/a')
-    );
+    logAppEvent('info', 'telegram', 'Telegram message delivery result', {
+      statusCode: response.getResponseCode(),
+      ok: !!(parsed && parsed.ok),
+      description: parsed && parsed.description ? String(parsed.description).slice(0, 120) : 'n/a'
+    });
   } catch (e) {
-    Logger.log('Error kirim Telegram: ' + e.message);
+    logAppEvent('error', 'telegram', 'Failed to send Telegram message', { error: e.message });
   }
 }

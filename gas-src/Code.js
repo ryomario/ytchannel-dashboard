@@ -20,7 +20,7 @@ function doPost(e) {
     try {
       body = JSON.parse(e.postData.contents);
     } catch (parseErr) {
-      Logger.log("JSON parse error: " + parseErr.message);
+      logAppEvent('warn', 'webhook', 'Malformed JSON payload rejected', { error: parseErr.message });
       return createJsonResponse({ success: false, error: "Bad Request: Malformed JSON" }, 400);
     }
 
@@ -56,7 +56,7 @@ function doPost(e) {
     }, 400);
 
   } catch (err) {
-    Logger.log("Unhandled error in doPost: " + err.toString());
+    logAppEvent('error', 'webhook', 'Unhandled doPost failure', { error: err.toString() });
     return createJsonResponse({
       success: false,
       error: "Internal Server Error: " + err.message
