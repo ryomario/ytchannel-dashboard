@@ -16,7 +16,7 @@ async function callApi(action, payload = {}) {
   const token = getAuthToken();
 
   if (!token) {
-    showPasswordModal("Sesi belum diautentikasi. Silakan masukkan kata kunci.");
+    showPasswordModal("Session not authenticated. Please enter the secret key.");
     throw new Error("Missing auth token in sessionStorage");
   }
 
@@ -57,7 +57,7 @@ async function callApi(action, payload = {}) {
 
     // Deteksi jika server mengembalikan error 401 Unauthorized
     if (response.status === 401 || (data && data.unauthorized)) {
-      const errorMsg = data.error || "Akses Ditolak: Kunci rahasia tidak valid atau kedaluwarsa.";
+      const errorMsg = data.error || "Access denied: the secret key is invalid or expired.";
       const modal = document.getElementById('passwordModal');
       const isModalActive = modal && modal.classList.contains('active');
       if (!isModalActive) {
@@ -71,7 +71,7 @@ async function callApi(action, payload = {}) {
     clearTimeout(timeoutId);
 
     if (error.name === 'AbortError') {
-      throw new Error("Koneksi timeout: Server Apps Script tidak merespons dalam 30 detik.");
+      throw new Error("Connection timed out: Google Apps Script server did not respond within 30 seconds.");
     }
 
     console.error(`API Error [${action}]:`, error);

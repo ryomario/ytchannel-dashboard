@@ -119,7 +119,7 @@ function handleGetDashboardData(payload) {
     if (typeof YouTube !== 'undefined' && YouTube.Channels) {
       channelStats = fetchChannelStats(channelId);
       if (channelStats && channelStats.id) {
-        latestVideos = fetchLatestVideos(channelStats.id, 5, channelStats.uploadsPlaylistId);
+        latestVideos = fetchLatestVideos(channelStats.id, 3, channelStats.uploadsPlaylistId);
         topVideos = fetchTopVideos(channelStats.id, 5, forceRefresh);
       }
     } else {
